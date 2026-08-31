@@ -32,6 +32,8 @@ public class McpProperties {
         private String url;
         private String endpoint = "/mcp";
         private Map<String, String> headers = new LinkedHashMap<>();
+        private List<String> includeTools = new ArrayList<>();
+        private List<String> excludeTools = new ArrayList<>();
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -49,5 +51,14 @@ public class McpProperties {
         public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
         public Map<String, String> getHeaders() { return headers; }
         public void setHeaders(Map<String, String> headers) { this.headers = headers; }
+        public List<String> getIncludeTools() { return includeTools; }
+        public void setIncludeTools(List<String> includeTools) { this.includeTools = includeTools; }
+        public List<String> getExcludeTools() { return excludeTools; }
+        public void setExcludeTools(List<String> excludeTools) { this.excludeTools = excludeTools; }
+
+        public boolean acceptsTool(String toolName) {
+            if (excludeTools.contains(toolName)) return false;
+            return includeTools.isEmpty() || includeTools.contains(toolName);
+        }
     }
 }
