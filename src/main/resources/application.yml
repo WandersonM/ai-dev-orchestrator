@@ -15,15 +15,21 @@ spring:
   flyway:
     enabled: true
 server:
-  port: 8080
+  address: ${AIDEV_SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
 aidev:
   workspace-root: ${AIDEV_WORKSPACE_ROOT:./workspace}
+  security:
+    control-token: ${AIDEV_CONTROL_TOKEN:}
+  command-policy:
+    allowed-executables: [git, mvn, ./mvnw, gradle, ./gradlew, npm, pnpm, grep, find, cat]
   orchestration:
     max-parallel: ${AIDEV_MAX_PARALLEL:3}
   execution:
+    max-captured-output-bytes: ${AIDEV_MAX_CAPTURED_OUTPUT_BYTES:2097152}
     self-hosted-worker:
       client-enabled: ${AIDEV_WORKER_CLIENT_ENABLED:false}
       server-enabled: ${AIDEV_WORKER_SERVER_ENABLED:false}
@@ -59,8 +65,7 @@ aidev:
     policies:
       REFINER:
         allow: []
-        deny:
-          - '*'
+        deny: ['*']
       ARCHITECT:
         allow: [search_code, read_file, project_knowledge]
         deny: [write_file, run_command]
