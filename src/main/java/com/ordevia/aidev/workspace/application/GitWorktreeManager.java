@@ -32,11 +32,11 @@ public class GitWorktreeManager {
             throw new IllegalStateException(e);
         }
         if (!Files.exists(target)) {
-            refreshRemoteBase(repository);
+            String baseRef = resolveBaseRef(repository);
             var result = executor.execute(
                     workspaceRoot,
                     repository,
-                    List.of("git", "worktree", "add", target.toString(), "-b", branch, "origin/" + baseBranch),
+                    List.of("git", "worktree", "add", target.toString(), "-b", branch, baseRef),
                     Duration.ofMinutes(2));
             if (result.exitCode() != 0) {
                 throw new IllegalStateException("Unable to create worktree: " + result.output());
@@ -57,15 +57,19 @@ public class GitWorktreeManager {
         return result.output();
     }
 
-    private void refreshRemoteBase(Path repository) {
-        var result = executor.execute(
+    private String resolveBaseRef(Path repository) {
+        var remote = executor.execute(workspaceRoot, repository, List.of("git", "remote", "get-url", "origin"), Duration.ofSeconds(30));
+        if (remote.exitCode() != 0) return "HEAD";
+
+        var fetch = executor.execute(
                 workspaceRoot,
                 repository,
                 List.of("git", "fetch", "origin", baseBranch),
                 Duration.ofMinutes(2));
-        if (result.exitCode() != 0) {
-            throw new IllegalStateException("Unable to refresh origin/" + baseBranch + ": " + result.output());
+        if (fetch.exitCode() != 0) {
+            throw new IllegalStateException("Unable to refresh origin/" + baseBranch + ": " + fetch.output());
         }
+        return "origin/" + baseBranch;
     }
 
     private Path worktreePath(String externalId) {
