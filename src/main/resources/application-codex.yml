@@ -1,0 +1,10 @@
+aidev:
+  codex:
+    enabled: ${AIDEV_CODEX_ENABLED:true}
+    binary: ${AIDEV_CODEX_BINARY:codex}
+    model: ${AIDEV_CODEX_MODEL:}
+    timeout: ${AIDEV_CODEX_TIMEOUT:20m}
+    ephemeral: ${AIDEV_CODEX_EPHEMERAL:true}
+    ignore-user-config: ${AIDEV_CODEX_IGNORE_USER_CONFIG:false}
+    strip-api-key-environment: ${AIDEV_CODEX_STRIP_API_KEY_ENV:true}
+    roles: ${AIDEV_CODEX_ROLES:BACKEND_DEVELOPER,FRONTEND_DEVELOPER,INTEGRATION_ENGINEER,QA_ENGINEER}
