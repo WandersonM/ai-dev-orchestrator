@@ -78,6 +78,7 @@ public class McpConnectionManager {
             McpSchema.ListToolsResult result = client.listTools();
             List<String> names = new ArrayList<>();
             for (McpSchema.Tool remoteTool : result.tools()) {
+                if (!config.acceptsTool(remoteTool.name())) continue;
                 McpAgentTool tool = new McpAgentTool(name, remoteTool, client, mapper);
                 toolRegistry.register(tool);
                 names.add(tool.name());
@@ -87,7 +88,7 @@ public class McpConnectionManager {
             registeredTools.put(name, names);
             ServerState state = new ServerState(name, "CONNECTED", names.size(), null);
             states.put(name, state);
-            log.info("MCP server '{}' connected with {} tools", name, names.size());
+            log.info("MCP server '{}' connected with {} exposed tools", name, names.size());
             return state;
         } catch (Exception e) {
             ServerState state = new ServerState(name, "FAILED", 0, e.getMessage());
