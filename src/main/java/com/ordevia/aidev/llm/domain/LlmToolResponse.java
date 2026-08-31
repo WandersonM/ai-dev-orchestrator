@@ -7,9 +7,9 @@ public record LlmToolResponse(
         List<LlmToolCall> toolCalls,
         LlmProvider provider,
         String model,
-        String turnId
+        String turnId,
+        LlmUsage usage,
+        long latencyMs
 ) {
-    public boolean hasToolCalls() {
-        return toolCalls != null && !toolCalls.isEmpty();
-    }
+    public boolean hasToolCalls() { return toolCalls != null && !toolCalls.isEmpty(); }
 }
