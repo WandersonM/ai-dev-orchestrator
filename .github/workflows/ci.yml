@@ -19,5 +19,7 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+      - name: Validate dogfood harness
+        run: python3 -m py_compile scripts/dogfood_e2e.py
       - name: Test
         run: mvn -B --no-transfer-progress test
