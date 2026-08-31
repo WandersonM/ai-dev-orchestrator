@@ -1,6 +1,7 @@
 package com.ordevia.aidev.session.application;
 
 import com.ordevia.aidev.agent.domain.AgentType;
+import com.ordevia.aidev.audit.application.AuditService;
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
 import com.ordevia.aidev.session.domain.*;
@@ -30,6 +31,7 @@ public class AgentSessionService {
     private final ToolExecutionJpaRepository toolExecutions;
     private final WorkItemJpaRepository workItems;
     private final WorkspaceSnapshotService workspaceSnapshots;
+    private final AuditService audit;
 
     public AgentSessionService(AgentSessionJpaRepository sessions,
                                AgentSessionMessageJpaRepository messages,
@@ -37,9 +39,10 @@ public class AgentSessionService {
                                AgentWorkspaceSnapshotJpaRepository snapshots,
                                ToolExecutionJpaRepository toolExecutions,
                                WorkItemJpaRepository workItems,
-                               WorkspaceSnapshotService workspaceSnapshots) {
+                               WorkspaceSnapshotService workspaceSnapshots,
+                               AuditService audit) {
         this.sessions=sessions; this.messages=messages; this.checkpoints=checkpoints; this.snapshots=snapshots;
-        this.toolExecutions=toolExecutions; this.workItems=workItems; this.workspaceSnapshots=workspaceSnapshots;
+        this.toolExecutions=toolExecutions; this.workItems=workItems; this.workspaceSnapshots=workspaceSnapshots; this.audit=audit;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -47,21 +50,54 @@ public class AgentSessionService {
         AgentSession session=sessions.findFirstByWorkItemIdAndAgentTypeAndStatusInOrderByCreatedAtDesc(workItemId,agentType,ACTIVE)
                 .orElseGet(()->sessions.save(new AgentSession(UUID.randomUUID(),workItemId,agentType)));
         if(session.getStatus()==AgentSessionStatus.CREATED||session.getStatus()==AgentSessionStatus.PAUSED)session.start();
-        sessions.save(session); checkpoint(session,AgentCheckpointType.SESSION_STARTED,session.getCurrentStep(),"Agent session active",null); return session;
+        sessions.save(session); checkpoint(session,AgentCheckpointType.SESSION_STARTED,session.getCurrentStep(),"Agent session active",null);
+        audit.append(workItemId,session.getId(),"AGENT_SESSION_ACTIVE","AGENT",agentType.name(),"AgentSession",session.getId().toString(),
+                Map.of("status",session.getStatus().name(),"attempt",session.getAttemptNumber(),"step",session.getCurrentStep()));
+        return session;
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW) public AgentSession requestPause(UUID id){AgentSession s=required(id);s.requestPause();return sessions.save(s);}
-    @Transactional(propagation = Propagation.REQUIRES_NEW) public AgentSession resume(UUID id){AgentSession s=required(id);s.resume();checkpoint(s,AgentCheckpointType.RESUMED,s.getCurrentStep(),"Human resumed session",null);return sessions.save(s);}
-    @Transactional(propagation = Propagation.REQUIRES_NEW) public AgentSession requestCancel(UUID id){AgentSession s=required(id);s.requestCancel();return sessions.save(s);}
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public AgentSession requestPause(UUID id){
+        AgentSession s=required(id);s.requestPause();sessions.save(s);
+        audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_PAUSE_REQUESTED","HUMAN",null,"AgentSession",s.getId().toString(),Map.of("step",s.getCurrentStep()));
+        return s;
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public AgentSessionMessage addHumanMessage(UUID id,String content,String providedBy){AgentSession s=required(id);if(s.getStatus().terminal())throw new IllegalStateException("Cannot message a terminal session");if(content==null||content.isBlank())throw new IllegalArgumentException("Message cannot be blank");return messages.save(new AgentSessionMessage(UUID.randomUUID(),id,AgentSessionMessageRole.HUMAN,content.trim(),providedBy));}
+    public AgentSession resume(UUID id){
+        AgentSession s=required(id);s.resume();checkpoint(s,AgentCheckpointType.RESUMED,s.getCurrentStep(),"Human resumed session",null);sessions.save(s);
+        audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_RESUMED","HUMAN",null,"AgentSession",s.getId().toString(),Map.of("step",s.getCurrentStep()));
+        return s;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public AgentSession requestCancel(UUID id){
+        AgentSession s=required(id);s.requestCancel();sessions.save(s);
+        audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_CANCEL_REQUESTED","HUMAN",null,"AgentSession",s.getId().toString(),Map.of("step",s.getCurrentStep()));
+        return s;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public AgentSessionMessage addHumanMessage(UUID id,String content,String providedBy){
+        AgentSession s=required(id);if(s.getStatus().terminal())throw new IllegalStateException("Cannot message a terminal session");if(content==null||content.isBlank())throw new IllegalArgumentException("Message cannot be blank");
+        AgentSessionMessage message=messages.save(new AgentSessionMessage(UUID.randomUUID(),id,AgentSessionMessageRole.HUMAN,content.trim(),providedBy));
+        audit.append(s.getWorkItemId(),s.getId(),"AGENT_HUMAN_MESSAGE_ADDED","HUMAN",providedBy,"AgentSessionMessage",message.getId().toString(),Map.of("length",content.trim().length()));
+        return message;
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ControlSnapshot controlPoint(UUID sessionId,int step,AgentCheckpointType type,String summary,String providerTurnId){
         AgentSession s=required(sessionId);s.step(step);
-        if(s.getStatus()==AgentSessionStatus.CANCEL_REQUESTED){s.markCancelled();sessions.save(s);AgentCheckpoint cp=checkpoint(s,AgentCheckpointType.CANCELLED,step,"Cancellation acknowledged",providerTurnId);return new ControlSnapshot(s.getStatus(),List.of(),cp.getId());}
-        if(s.getStatus()==AgentSessionStatus.PAUSE_REQUESTED){s.markPaused();sessions.save(s);AgentCheckpoint cp=checkpoint(s,AgentCheckpointType.PAUSED,step,"Pause acknowledged at safe point",providerTurnId);return new ControlSnapshot(s.getStatus(),List.of(),cp.getId());}
+        if(s.getStatus()==AgentSessionStatus.CANCEL_REQUESTED){
+            s.markCancelled();sessions.save(s);AgentCheckpoint cp=checkpoint(s,AgentCheckpointType.CANCELLED,step,"Cancellation acknowledged",providerTurnId);
+            audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_CANCELLED","SYSTEM",null,"AgentSession",s.getId().toString(),Map.of("step",step));
+            return new ControlSnapshot(s.getStatus(),List.of(),cp.getId());
+        }
+        if(s.getStatus()==AgentSessionStatus.PAUSE_REQUESTED){
+            s.markPaused();sessions.save(s);AgentCheckpoint cp=checkpoint(s,AgentCheckpointType.PAUSED,step,"Pause acknowledged at safe point",providerTurnId);
+            audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_PAUSED","SYSTEM",null,"AgentSession",s.getId().toString(),Map.of("step",step));
+            return new ControlSnapshot(s.getStatus(),List.of(),cp.getId());
+        }
         s.heartbeat();sessions.save(s);AgentCheckpoint cp=checkpoint(s,type,step,summary,providerTurnId);
         List<AgentSessionMessage> pending=messages.findBySessionIdAndRoleAndConsumedAtIsNullOrderByCreatedAtAsc(sessionId,AgentSessionMessageRole.HUMAN);List<String> human=new ArrayList<>();
         for(AgentSessionMessage message:pending){human.add(message.getContent());message.markConsumed();}
@@ -71,8 +107,17 @@ public class AgentSessionService {
 
     public void awaitResumeOrCancel(UUID sessionId){while(true){AgentSessionStatus status=sessions.findById(sessionId).orElseThrow().getStatus();if(status==AgentSessionStatus.RUNNING)return;if(status==AgentSessionStatus.CANCEL_REQUESTED||status==AgentSessionStatus.CANCELLED||status==AgentSessionStatus.FAILED)throw new AgentSessionCancelledException("Agent session cancelled");try{Thread.sleep(Duration.ofMillis(350));}catch(InterruptedException e){Thread.currentThread().interrupt();throw new AgentSessionCancelledException("Agent session interrupted");}}}
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW) public void complete(UUID id,int step,String summary){AgentSession s=required(id);if(!s.getStatus().terminal()){s.complete();sessions.save(s);checkpoint(s,AgentCheckpointType.COMPLETED,step,summary,null);}}
-    @Transactional(propagation = Propagation.REQUIRES_NEW) public void fail(UUID id,int step,String error){AgentSession s=required(id);if(!s.getStatus().terminal()){s.fail(error);sessions.save(s);checkpoint(s,AgentCheckpointType.FAILED,step,error,null);}}
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void complete(UUID id,int step,String summary){
+        AgentSession s=required(id);if(!s.getStatus().terminal()){s.complete();sessions.save(s);checkpoint(s,AgentCheckpointType.COMPLETED,step,summary,null);
+            audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_COMPLETED","AGENT",s.getAgentType().name(),"AgentSession",s.getId().toString(),Map.of("step",step));}
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void fail(UUID id,int step,String error){
+        AgentSession s=required(id);if(!s.getStatus().terminal()){s.fail(error);sessions.save(s);checkpoint(s,AgentCheckpointType.FAILED,step,error,null);
+            audit.append(s.getWorkItemId(),s.getId(),"AGENT_SESSION_FAILED","AGENT",s.getAgentType().name(),"AgentSession",s.getId().toString(),Map.of("step",step,"error",trim(Objects.toString(error,""),1000)));}
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public AgentSession fork(UUID sourceSessionId, UUID checkpointId, String instruction, String providedBy){
@@ -88,6 +133,8 @@ public class AgentSessionService {
         sessions.save(fork); item.setActiveWorkspacePath(forkRoot.toString()); item.moveTo(retryStatus(source.getAgentType())); workItems.save(item);
         if(instruction!=null&&!instruction.isBlank())messages.save(new AgentSessionMessage(UUID.randomUUID(),fork.getId(),AgentSessionMessageRole.HUMAN,instruction.trim(),providedBy));
         checkpoint(fork,AgentCheckpointType.SESSION_STARTED,fork.getCurrentStep(),"Forked from session "+sourceSessionId+" checkpoint "+checkpointId,null);
+        audit.append(item.getId(),fork.getId(),"AGENT_SESSION_FORKED","HUMAN",providedBy,"AgentSession",fork.getId().toString(),Map.of(
+                "parentSessionId",sourceSessionId.toString(),"checkpointId",checkpointId.toString(),"attempt",fork.getAttemptNumber(),"step",fork.getCurrentStep()));
         return fork;
     }
 
@@ -120,7 +167,7 @@ public class AgentSessionService {
         case BACKEND_DEVELOPER, FRONTEND_DEVELOPER -> WorkItemStatus.READY_FOR_DEVELOPMENT;
         case INTEGRATION_ENGINEER -> WorkItemStatus.INTEGRATING;
         case QA_ENGINEER -> WorkItemStatus.QA_VALIDATING;
-        case REVIEWER -> WorkItemStatus.REVIEWING;
+        case REVIEWER, CRITIC -> WorkItemStatus.REVIEWING;
         case SECURITY_REVIEWER -> WorkItemStatus.SECURITY_REVIEWING;
         case RELEASE_ENGINEER -> WorkItemStatus.RELEASE_PREPARING;
         default -> throw new IllegalStateException("Agent type does not support execution fork: "+type);
