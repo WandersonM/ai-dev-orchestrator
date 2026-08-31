@@ -26,14 +26,47 @@ aidev:
   agents:
     planning:
       max-rounds: ${AIDEV_PLANNING_MAX_ROUNDS:3}
+    architect:
+      max-steps: ${AIDEV_ARCHITECT_MAX_STEPS:12}
     backend:
       max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
+    frontend:
+      max-steps: ${AIDEV_FRONTEND_MAX_STEPS:20}
+    qa:
+      max-steps: ${AIDEV_QA_MAX_STEPS:16}
+    integration:
+      max-steps: ${AIDEV_INTEGRATION_MAX_STEPS:12}
     review:
       max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
   tool-policy:
     default-effect: DENY
     policies:
+      REFINER:
+        allow: []
+        deny:
+          - '*'
+      ARCHITECT:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
       BACKEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+        deny: []
+      FRONTEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+        deny: []
+      QA_ENGINEER:
         allow:
           - search_code
           - read_file
@@ -47,10 +80,34 @@ aidev:
         deny:
           - write_file
           - run_command
-      REFINER:
-        allow: []
+      SECURITY_REVIEWER:
+        allow:
+          - search_code
+          - read_file
         deny:
-          - '*'
+          - write_file
+          - run_command
+      INTEGRATION_ENGINEER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+        deny: []
+      RELEASE_ENGINEER:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
+      DOMAIN_GUARDIAN:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
   github:
     publish-enabled: ${AIDEV_GITHUB_PUBLISH_ENABLED:false}
     token: ${AIDEV_GITHUB_TOKEN:}
@@ -65,12 +122,33 @@ aidev:
       refinement:
         provider: ${AIDEV_REFINEMENT_PROVIDER:GEMINI}
         model: ${AIDEV_REFINEMENT_MODEL:gemini-3.7-flash}
+      architecture:
+        provider: ${AIDEV_ARCHITECTURE_PROVIDER:OPENAI}
+        model: ${AIDEV_ARCHITECTURE_MODEL:gpt-5.6-sol}
       backend:
         provider: ${AIDEV_BACKEND_PROVIDER:OPENAI}
         model: ${AIDEV_BACKEND_MODEL:gpt-5.6-sol}
+      frontend:
+        provider: ${AIDEV_FRONTEND_PROVIDER:GEMINI}
+        model: ${AIDEV_FRONTEND_MODEL:gemini-3.7-flash}
+      qa:
+        provider: ${AIDEV_QA_PROVIDER:GEMINI}
+        model: ${AIDEV_QA_MODEL:gemini-3.7-flash}
       review:
         provider: ${AIDEV_REVIEW_PROVIDER:OPENAI}
         model: ${AIDEV_REVIEW_MODEL:gpt-5.6-sol}
+      security:
+        provider: ${AIDEV_SECURITY_PROVIDER:OPENAI}
+        model: ${AIDEV_SECURITY_MODEL:gpt-5.6-sol}
+      integration:
+        provider: ${AIDEV_INTEGRATION_PROVIDER:OPENAI}
+        model: ${AIDEV_INTEGRATION_MODEL:gpt-5.6-sol}
+      release:
+        provider: ${AIDEV_RELEASE_PROVIDER:OPENAI}
+        model: ${AIDEV_RELEASE_MODEL:gpt-5.6-sol}
+      domain-validation:
+        provider: ${AIDEV_DOMAIN_VALIDATION_PROVIDER:GEMINI}
+        model: ${AIDEV_DOMAIN_VALIDATION_MODEL:gemini-3.7-flash}
     openai:
       api-key: ${OPENAI_API_KEY:}
       base-url: ${OPENAI_BASE_URL:https://api.openai.com}
