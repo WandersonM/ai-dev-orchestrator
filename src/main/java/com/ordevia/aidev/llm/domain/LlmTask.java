@@ -7,6 +7,7 @@ public enum LlmTask {
     FRONTEND_IMPLEMENTATION,
     QA,
     REVIEW,
+    CRITIC,
     SECURITY_REVIEW,
     INTEGRATION,
     RELEASE,
