@@ -48,7 +48,8 @@ public class ToolLoopRunner {
                     + "\n\nIMPORTANT MULTI-ROOT RULES:\n"
                     + "When multiple repository roots are listed, always prefix file paths with the repository alias. "
                     + "Do not assume all roots use the same language, build tool, runtime, base branch, conventions or release process. "
-                    + "Inspect repository-specific instructions before editing and run commands against the correct root (for example Maven -f or npm --prefix)."
+                    + "Inspect repository-specific instructions before editing. For run_command set cwd to the repository alias (for example legacy or frontend); "
+                    + "the orchestrator may route that command to a repository-specific sandbox."
                     + "\n\nPREVIOUS PERSISTED TOOL HISTORY:\n" + transcript;
             LlmToolRequest request = LlmToolRequest.initial(task, systemPrompt, prompt, toolDefinitions(agentType));
 
@@ -69,7 +70,7 @@ public class ToolLoopRunner {
                     toolExecutions.saveAndFlush(execution);
                     String providerOutput;
                     try {
-                        ToolResult result = toolAccess.required(agentType, call.name()).execute(context.repository(), call.arguments());
+                        ToolResult result = toolAccess.required(agentType, call.name()).execute(context, call.arguments());
                         if (result.success()) {
                             execution.succeed(result.output());
                             providerOutput = result.output();
@@ -106,7 +107,10 @@ public class ToolLoopRunner {
                         Map.of("path", Map.of("type", "string", "description", "Workspace-relative file path; prefix with repository alias in multi-root tasks"), "content", Map.of("type", "string")),
                         List.of("path", "content"));
                 case "run_command" -> objectSchema(
-                        Map.of("command", Map.of("type", "array", "items", Map.of("type", "string"), "description", "Command executed from task workspace root; target a repository explicitly when multi-root")),
+                        Map.of(
+                                "command", Map.of("type", "array", "items", Map.of("type", "string"), "description", "Allow-listed command and arguments"),
+                                "cwd", Map.of("type", "string", "description", "Optional task-workspace-relative working directory. Required for multi-repository tasks, e.g. legacy or frontend")
+                        ),
                         List.of("command"));
                 default -> tool.inputSchema();
             };
