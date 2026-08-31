@@ -42,7 +42,14 @@ public class ToolLoopRunner {
             List<ToolExecution> previous = toolExecutions.findByWorkItemIdAndAgentTypeOrderByStepNumberAsc(context.workItemId(), agentType);
             String transcript = buildTranscript(previous);
             int step = previous.stream().mapToInt(ToolExecution::getStepNumber).max().orElse(0);
-            String prompt = userPrompt + "\n\nPREVIOUS PERSISTED TOOL HISTORY:\n" + transcript;
+            String workspaceManifest = Objects.toString(context.metadata().getOrDefault("workspaceManifest", "Single repository workspace."), "");
+            String prompt = userPrompt
+                    + "\n\nWORKSPACE MANIFEST:\n" + workspaceManifest
+                    + "\n\nIMPORTANT MULTI-ROOT RULES:\n"
+                    + "When multiple repository roots are listed, always prefix file paths with the repository alias. "
+                    + "Do not assume all roots use the same language, build tool, runtime, base branch, conventions or release process. "
+                    + "Inspect repository-specific instructions before editing and run commands against the correct root (for example Maven -f or npm --prefix)."
+                    + "\n\nPREVIOUS PERSISTED TOOL HISTORY:\n" + transcript;
             LlmToolRequest request = LlmToolRequest.initial(task, systemPrompt, prompt, toolDefinitions(agentType));
 
             while (step < maxSteps) {
@@ -93,13 +100,13 @@ public class ToolLoopRunner {
                         Map.of("query", Map.of("type", "string", "description", "Text, class, method or symbol to search for")),
                         List.of("query"));
                 case "read_file" -> objectSchema(
-                        Map.of("path", Map.of("type", "string", "description", "Repository-relative file path")),
+                        Map.of("path", Map.of("type", "string", "description", "Workspace-relative file path. In multi-root tasks prefix with repository alias, e.g. backend/src/...")),
                         List.of("path"));
                 case "write_file" -> objectSchema(
-                        Map.of("path", Map.of("type", "string"), "content", Map.of("type", "string")),
+                        Map.of("path", Map.of("type", "string", "description", "Workspace-relative file path; prefix with repository alias in multi-root tasks"), "content", Map.of("type", "string")),
                         List.of("path", "content"));
                 case "run_command" -> objectSchema(
-                        Map.of("command", Map.of("type", "array", "items", Map.of("type", "string"))),
+                        Map.of("command", Map.of("type", "array", "items", Map.of("type", "string"), "description", "Command executed from task workspace root; target a repository explicitly when multi-root")),
                         List.of("command"));
                 default -> tool.inputSchema();
             };
