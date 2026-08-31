@@ -1,0 +1,3 @@
+package com.ordevia.aidev.workitem.domain;
+
+public enum WorkItemStatus { NEW, REFINING, READY_FOR_DEVELOPMENT, IMPLEMENTING, REVIEWING, CHANGES_REQUESTED, READY_FOR_HUMAN_REVIEW, DONE, FAILED }
