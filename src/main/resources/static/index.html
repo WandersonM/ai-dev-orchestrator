@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Dev Control Plane</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">AI</span><div><strong>Dev Orchestrator</strong><small>Control Plane</small></div></div>
+    <label class="field">Projeto<select id="projectSelect"></select></label>
+    <button id="refreshBtn" class="btn secondary">Atualizar</button>
+    <button id="executeBtn" class="btn primary">Executar próxima onda</button>
+    <nav>
+      <button class="nav active" data-view="delivery">Delivery</button>
+      <button class="nav" data-view="approvals">Approvals <span id="approvalBadge" class="badge">0</span></button>
+      <button class="nav" data-view="mcp">MCP</button>
+    </nav>
+    <div class="sidebar-footer"><a href="/swagger-ui.html">Swagger API ↗</a><span id="health">local</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar"><div><h1 id="pageTitle">Delivery</h1><p id="projectDescription">Selecione um projeto.</p></div><div id="toast" class="toast"></div></header>
+
+    <section id="deliveryView" class="view active">
+      <div class="stats">
+        <article><span>WorkItems</span><strong id="statTotal">0</strong></article>
+        <article><span>Em execução</span><strong id="statRunning">0</strong></article>
+        <article><span>Gate humano</span><strong id="statHuman">0</strong></article>
+        <article><span>Concluídos</span><strong id="statDone">0</strong></article>
+        <article><span>Custo selecionado</span><strong id="statCost">$0.00</strong></article>
+      </div>
+
+      <div class="layout">
+        <section class="panel stretch"><div class="panel-head"><div><h2>DAG & ondas</h2><p>Dependências e fronteira executável</p></div><span id="dagStatus" class="pill">—</span></div><div id="dag" class="waves empty">Nenhum projeto selecionado.</div></section>
+        <section class="panel"><div class="panel-head"><div><h2>WorkItems</h2><p>Selecione para inspecionar</p></div></div><div id="workItems" class="work-items"></div></section>
+      </div>
+
+      <section id="detail" class="panel detail hidden">
+        <div class="panel-head"><div><h2 id="detailTitle">WorkItem</h2><p id="detailMeta"></p></div><span id="detailStatus" class="pill"></span></div>
+        <div class="detail-grid">
+          <div><h3>Especificação</h3><pre id="specification">—</pre></div>
+          <div><h3>Arquitetura</h3><pre id="architecture">—</pre></div>
+        </div>
+        <div class="subgrid">
+          <div><h3>Sessões</h3><div id="sessions"></div></div>
+          <div><h3>Telemetria</h3><div id="telemetry"></div><h3>Budget</h3><div id="budget"></div></div>
+          <div><h3>Audit timeline</h3><div id="audit"></div></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="approvalsView" class="view">
+      <section class="panel"><div class="panel-head"><div><h2>Approval Inbox</h2><p>Operações de risco aguardando decisão humana</p></div></div><div id="approvals" class="approval-list"></div></section>
+    </section>
+
+    <section id="mcpView" class="view">
+      <section class="panel"><div class="panel-head"><div><h2>MCP Servers</h2><p>Ferramentas externas descobertas pelo orchestrator</p></div></div><div id="mcpServers"></div></section>
+    </section>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
