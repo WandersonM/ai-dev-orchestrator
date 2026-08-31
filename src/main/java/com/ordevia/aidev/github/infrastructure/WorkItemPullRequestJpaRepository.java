@@ -10,4 +10,5 @@ import java.util.UUID;
 public interface WorkItemPullRequestJpaRepository extends JpaRepository<WorkItemPullRequest, UUID> {
     List<WorkItemPullRequest> findByWorkItemIdOrderByRepositoryAliasAsc(UUID workItemId);
     Optional<WorkItemPullRequest> findByWorkItemIdAndRepositoryAlias(UUID workItemId, String repositoryAlias);
+    Optional<WorkItemPullRequest> findByRepositorySlugAndPullRequestNumber(String repositorySlug, int pullRequestNumber);
 }
