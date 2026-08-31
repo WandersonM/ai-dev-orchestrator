@@ -2,7 +2,6 @@ package com.ordevia.aidev.integration.trello;
 
 import com.ordevia.aidev.planning.application.PlanningService;
 import com.ordevia.aidev.planning.domain.PlanningQuestion;
-import com.ordevia.aidev.planning.domain.PlanningStatus;
 import com.ordevia.aidev.project.application.ProjectService;
 import com.ordevia.aidev.workitem.domain.WorkItem;
 import com.ordevia.aidev.workitem.domain.WorkItemStatus;
@@ -47,6 +46,10 @@ public class TrelloSyncService {
         int consumed=consumeCommands(link);
         int published=publishPlanningState(link);
         return new SyncResult(workItemId,link.getCardId(),consumed,published,workItems.findById(workItemId).orElseThrow().getStatus());
+    }
+
+    public Optional<SyncResult> syncCard(String cardId){
+        return links.findByCardId(cardId).map(link -> syncWorkItem(link.getWorkItemId()));
     }
 
     @Scheduled(fixedDelayString="${aidev.trello.polling-interval-ms:30000}")
