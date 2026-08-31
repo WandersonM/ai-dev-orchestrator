@@ -2,6 +2,7 @@ package com.ordevia.aidev.api;
 
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
+import com.ordevia.aidev.github.application.GitHubPublisher;
 import com.ordevia.aidev.workflow.application.WorkflowEngine;
 import com.ordevia.aidev.workitem.domain.WorkItem;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemJpaRepository;
@@ -19,13 +20,16 @@ public class WorkItemController {
     private final WorkItemJpaRepository repository;
     private final ToolExecutionJpaRepository toolExecutions;
     private final WorkflowEngine workflow;
+    private final GitHubPublisher githubPublisher;
 
     public WorkItemController(WorkItemJpaRepository repository,
                               ToolExecutionJpaRepository toolExecutions,
-                              WorkflowEngine workflow) {
+                              WorkflowEngine workflow,
+                              GitHubPublisher githubPublisher) {
         this.repository = repository;
         this.toolExecutions = toolExecutions;
         this.workflow = workflow;
+        this.githubPublisher = githubPublisher;
     }
 
     @PostMapping
@@ -61,6 +65,11 @@ public class WorkItemController {
     @PostMapping("/{id}/start")
     public WorkItem start(@PathVariable UUID id) {
         return workflow.process(id);
+    }
+
+    @PostMapping("/{id}/publish")
+    public WorkItem publish(@PathVariable UUID id) {
+        return githubPublisher.publish(id);
     }
 
     public record CreateWorkItemRequest(
