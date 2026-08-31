@@ -7,6 +7,7 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.client.transport.ServerParameters;
 import io.modelcontextprotocol.client.transport.StdioClientTransport;
+import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import jakarta.annotation.PreDestroy;
@@ -19,7 +20,6 @@ import org.springframework.util.StringUtils;
 
 import java.net.http.HttpRequest;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -104,7 +104,7 @@ public class McpConnectionManager {
                         .args(config.getArgs())
                         .env(config.getEnv())
                         .build();
-                yield new StdioClientTransport(parameters);
+                yield new StdioClientTransport(parameters, McpJsonDefaults.getMapper());
             }
             case STREAMABLE_HTTP -> {
                 HttpRequest.Builder requestBuilder = HttpRequest.newBuilder();
