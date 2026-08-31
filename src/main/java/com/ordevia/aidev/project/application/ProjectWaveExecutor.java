@@ -88,7 +88,7 @@ public class ProjectWaveExecutor {
 
     private ItemExecution runToGate(UUID id) {
         int transitions = 0;
-        while (transitions++ < 12) {
+        while (transitions++ < 20) {
             WorkItem current = workItems.findById(id).orElseThrow();
             if (isGate(current.getStatus())) return new ItemExecution(current.getId(), current.getExternalId(), current.getStatus(), null);
             workflow.process(id);
@@ -106,8 +106,15 @@ public class ProjectWaveExecutor {
 
     private boolean isGate(WorkItemStatus status) {
         return switch (status) {
-            case WAITING_FOR_USER_INPUT, READY_FOR_PLANNING_REVIEW, PLANNING_HUMAN_REQUIRED,
-                 ARCHITECTURE_HUMAN_REQUIRED, READY_FOR_HUMAN_REVIEW, DONE, FAILED -> true;
+            case WAITING_FOR_USER_INPUT,
+                 READY_FOR_PLANNING_REVIEW,
+                 PLANNING_HUMAN_REQUIRED,
+                 DOMAIN_HUMAN_REQUIRED,
+                 ARCHITECTURE_HUMAN_REQUIRED,
+                 RELEASE_HUMAN_REQUIRED,
+                 READY_FOR_HUMAN_REVIEW,
+                 DONE,
+                 FAILED -> true;
             default -> false;
         };
     }
