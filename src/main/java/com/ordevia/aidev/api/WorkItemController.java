@@ -54,6 +54,15 @@ public class WorkItemController {
     @PostMapping("/{id}/start") public WorkItem start(@PathVariable UUID id) { return workflow.process(id); }
     @PostMapping("/{id}/publish") public WorkItem publish(@PathVariable UUID id) { return githubPublisher.publish(id); }
 
+    @PostMapping("/{id}/human-gates/domain/approve")
+    public WorkItem approveDomain(@PathVariable UUID id) { return workflow.approveDomainOverride(id); }
+
+    @PostMapping("/{id}/human-gates/architecture/approve")
+    public WorkItem approveArchitecture(@PathVariable UUID id) { return workflow.approveArchitectureOverride(id); }
+
+    @PostMapping("/{id}/human-gates/release/approve")
+    public WorkItem approveRelease(@PathVariable UUID id) { return workflow.approveReleaseOverride(id); }
+
     @PostMapping("/{id}/complete")
     public WorkItem complete(@PathVariable UUID id) {
         return workflow.markDone(id);
