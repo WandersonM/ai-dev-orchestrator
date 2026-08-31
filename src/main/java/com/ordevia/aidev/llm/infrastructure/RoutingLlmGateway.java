@@ -143,6 +143,7 @@ public class RoutingLlmGateway implements LlmGateway {
             case FRONTEND_IMPLEMENTATION -> properties.routes().frontend();
             case QA -> properties.routes().qa();
             case REVIEW -> properties.routes().review();
+            case CRITIC -> properties.routes().critic();
             case SECURITY_REVIEW -> properties.routes().security();
             case INTEGRATION -> properties.routes().integration();
             case RELEASE -> properties.routes().release();
