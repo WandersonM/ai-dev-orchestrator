@@ -37,7 +37,14 @@ aidev:
     integration:
       max-steps: ${AIDEV_INTEGRATION_MAX_STEPS:12}
     review:
+      max-steps: ${AIDEV_REVIEW_MAX_STEPS:10}
       max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
+    security:
+      max-steps: ${AIDEV_SECURITY_MAX_STEPS:10}
+    domain-guardian:
+      max-steps: ${AIDEV_DOMAIN_GUARDIAN_MAX_STEPS:10}
+    release:
+      max-steps: ${AIDEV_RELEASE_MAX_STEPS:8}
   tool-policy:
     default-effect: DENY
     policies:
