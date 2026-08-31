@@ -4,7 +4,11 @@ import com.ordevia.aidev.project.application.ProjectDagPlanner;
 import com.ordevia.aidev.project.application.ProjectService;
 import com.ordevia.aidev.project.application.ProjectWaveExecutor;
 import com.ordevia.aidev.project.domain.Project;
+import com.ordevia.aidev.project.domain.WaveExecution;
+import com.ordevia.aidev.project.domain.WaveExecutionItem;
 import com.ordevia.aidev.project.infrastructure.ProjectJpaRepository;
+import com.ordevia.aidev.project.infrastructure.WaveExecutionItemJpaRepository;
+import com.ordevia.aidev.project.infrastructure.WaveExecutionJpaRepository;
 import com.ordevia.aidev.workitem.domain.WorkItem;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -22,15 +26,21 @@ public class ProjectController {
     private final ProjectService projectService;
     private final ProjectDagPlanner planner;
     private final ProjectWaveExecutor executor;
+    private final WaveExecutionJpaRepository waveExecutions;
+    private final WaveExecutionItemJpaRepository waveExecutionItems;
 
     public ProjectController(ProjectJpaRepository projects,
                              ProjectService projectService,
                              ProjectDagPlanner planner,
-                             ProjectWaveExecutor executor) {
+                             ProjectWaveExecutor executor,
+                             WaveExecutionJpaRepository waveExecutions,
+                             WaveExecutionItemJpaRepository waveExecutionItems) {
         this.projects = projects;
         this.projectService = projectService;
         this.planner = planner;
         this.executor = executor;
+        this.waveExecutions = waveExecutions;
+        this.waveExecutionItems = waveExecutionItems;
     }
 
     @PostMapping
@@ -39,8 +49,7 @@ public class ProjectController {
         return projectService.create(request.name(), request.description(), request.repositoryPath());
     }
 
-    @GetMapping
-    public List<Project> list() { return projects.findAll(); }
+    @GetMapping public List<Project> list() { return projects.findAll(); }
 
     @GetMapping("/{id}")
     public Project get(@PathVariable UUID id) {
@@ -66,7 +75,20 @@ public class ProjectController {
     public ProjectDagPlanner.DagPlan dag(@PathVariable UUID id) { return planner.plan(id); }
 
     @PostMapping("/{id}/execute-ready")
-    public ProjectWaveExecutor.WaveExecution executeReady(@PathVariable UUID id) { return executor.executeReady(id); }
+    public ProjectWaveExecutor.WaveRunResult executeReady(@PathVariable UUID id) { return executor.executeReady(id); }
+
+    @GetMapping("/{id}/wave-executions")
+    public List<WaveExecution> waveExecutions(@PathVariable UUID id) {
+        if (!projects.existsById(id)) throw new NoSuchElementException("Project not found");
+        return waveExecutions.findByProjectIdOrderByStartedAtDesc(id);
+    }
+
+    @GetMapping("/{projectId}/wave-executions/{waveId}/items")
+    public List<WaveExecutionItem> waveExecutionItems(@PathVariable UUID projectId, @PathVariable UUID waveId) {
+        WaveExecution wave = waveExecutions.findById(waveId).orElseThrow(() -> new NoSuchElementException("Wave execution not found"));
+        if (!projectId.equals(wave.getProjectId())) throw new IllegalArgumentException("Wave execution does not belong to project");
+        return waveExecutionItems.findByWaveExecutionIdOrderByStartedAtAsc(waveId);
+    }
 
     public record CreateProjectRequest(@NotBlank String name, String description, @NotBlank String repositoryPath) {}
     public record CreateProjectWorkItemRequest(String externalId, @NotBlank String title, String description, List<UUID> blockedBy) {}
