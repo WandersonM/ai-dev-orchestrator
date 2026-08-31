@@ -11,5 +11,8 @@ public record LlmToolResponse(
         LlmUsage usage,
         long latencyMs
 ) {
-    public boolean hasToolCalls() { return toolCalls != null && !toolCalls.isEmpty(); }
+    public LlmToolResponse(String text,List<LlmToolCall> toolCalls,LlmProvider provider,String model,String turnId) {
+        this(text,toolCalls,provider,model,turnId,LlmUsage.empty(),0);
+    }
+    public boolean hasToolCalls(){return toolCalls!=null&&!toolCalls.isEmpty();}
 }
