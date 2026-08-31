@@ -107,7 +107,7 @@ public class ProjectWaveExecutor {
     private boolean isGate(WorkItemStatus status) {
         return switch (status) {
             case WAITING_FOR_USER_INPUT, READY_FOR_PLANNING_REVIEW, PLANNING_HUMAN_REQUIRED,
-                 READY_FOR_HUMAN_REVIEW, DONE, FAILED -> true;
+                 ARCHITECTURE_HUMAN_REQUIRED, READY_FOR_HUMAN_REVIEW, DONE, FAILED -> true;
             default -> false;
         };
     }
