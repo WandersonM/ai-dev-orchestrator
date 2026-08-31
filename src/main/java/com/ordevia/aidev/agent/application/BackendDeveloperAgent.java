@@ -1,0 +1,86 @@
+package com.ordevia.aidev.agent.application;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ordevia.aidev.agent.domain.*;
+import com.ordevia.aidev.agent.tool.*;
+import com.ordevia.aidev.llm.domain.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import java.util.*;
+
+@Component
+public class BackendDeveloperAgent implements Agent {
+    private final LlmGateway llm;
+    private final ToolRegistry tools;
+    private final ObjectMapper mapper;
+    private final int maxSteps;
+
+    public BackendDeveloperAgent(LlmGateway llm, ToolRegistry tools, ObjectMapper mapper,
+                                 @Value("${aidev.agents.backend.max-steps:20}") int maxSteps) {
+        this.llm = llm;
+        this.tools = tools;
+        this.mapper = mapper;
+        this.maxSteps = maxSteps;
+    }
+
+    @Override public AgentType type() { return AgentType.BACKEND_DEVELOPER; }
+
+    @Override
+    public AgentResult execute(AgentContext context) {
+        try {
+            String transcript = "";
+            for (int step = 1; step <= maxSteps; step++) {
+                String response = llm.execute(new LlmRequest(
+                        LlmTask.BACKEND_IMPLEMENTATION,
+                        systemPrompt(),
+                        userPrompt(context, transcript, step))).content();
+                Map<String, Object> action = parseJson(response);
+                String type = String.valueOf(action.get("type"));
+                if ("complete".equals(type)) {
+                    return AgentResult.success(String.valueOf(action.getOrDefault("report", response)));
+                }
+                if (!"tool".equals(type)) {
+                    transcript += "\nInvalid response: " + response;
+                    continue;
+                }
+                String toolName = String.valueOf(action.get("tool"));
+                @SuppressWarnings("unchecked")
+                Map<String, Object> args = action.get("arguments") instanceof Map<?,?> m ? (Map<String,Object>) m : Map.of();
+                ToolResult result = tools.required(toolName).execute(context.repository(), args);
+                transcript += "\nSTEP " + step + " TOOL " + toolName + " => " + (result.success() ? result.output() : "ERROR: " + result.error());
+                if (transcript.length() > 50000) transcript = transcript.substring(transcript.length() - 50000);
+            }
+            return AgentResult.failure("Backend agent exceeded max steps: " + maxSteps);
+        } catch (Exception e) {
+            return AgentResult.failure(e.getMessage());
+        }
+    }
+
+    private Map<String,Object> parseJson(String raw) throws Exception {
+        String json = raw.trim();
+        if (json.startsWith("```")) {
+            int firstNl = json.indexOf('\n');
+            int last = json.lastIndexOf("```");
+            if (firstNl >= 0 && last > firstNl) json = json.substring(firstNl + 1, last).trim();
+        }
+        return mapper.readValue(json, new TypeReference<>() {});
+    }
+
+    private String systemPrompt() {
+        return """
+                You are a Staff Backend Engineer operating an existing repository through tools.
+                Never invent successful tool results. Inspect the code before editing it. Preserve architecture and conventions.
+                Run tests or compilation before completing when the repository supports them.
+                Respond ONLY with one JSON object per turn.
+                To use a tool: {"type":"tool","tool":"read_file|write_file|run_command","arguments":{...}}
+                To finish: {"type":"complete","report":"markdown implementation report including files changed, tests, risks and remaining work"}
+                Never include markdown fences around the JSON.
+                """;
+    }
+
+    private String userPrompt(AgentContext c, String transcript, int step) {
+        return "TITLE: " + c.title() + "\nDESCRIPTION: " + c.description() + "\nSPECIFICATION:\n" + c.specification()
+                + "\nRepository: " + c.repository() + "\nStep: " + step + "\nPrevious tool results:\n" + transcript;
+    }
+}
