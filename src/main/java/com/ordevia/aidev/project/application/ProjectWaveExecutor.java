@@ -105,7 +105,11 @@ public class ProjectWaveExecutor {
     }
 
     private boolean isGate(WorkItemStatus status) {
-        return status == WorkItemStatus.READY_FOR_HUMAN_REVIEW || status == WorkItemStatus.DONE || status == WorkItemStatus.FAILED;
+        return switch (status) {
+            case WAITING_FOR_USER_INPUT, READY_FOR_PLANNING_REVIEW, PLANNING_HUMAN_REQUIRED,
+                 READY_FOR_HUMAN_REVIEW, DONE, FAILED -> true;
+            default -> false;
+        };
     }
 
     public record WaveRunResult(UUID waveExecutionId, UUID projectId, List<ItemExecution> items) {}
