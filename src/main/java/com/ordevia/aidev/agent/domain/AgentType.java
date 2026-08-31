@@ -1,3 +1,14 @@
 package com.ordevia.aidev.agent.domain;
 
-public enum AgentType { REFINER, BACKEND_DEVELOPER, REVIEWER }
+public enum AgentType {
+    REFINER,
+    ARCHITECT,
+    BACKEND_DEVELOPER,
+    FRONTEND_DEVELOPER,
+    QA_ENGINEER,
+    REVIEWER,
+    SECURITY_REVIEWER,
+    INTEGRATION_ENGINEER,
+    RELEASE_ENGINEER,
+    DOMAIN_GUARDIAN
+}
