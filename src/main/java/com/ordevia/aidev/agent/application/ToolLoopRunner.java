@@ -7,6 +7,8 @@ import com.ordevia.aidev.agent.skill.SkillRegistry;
 import com.ordevia.aidev.agent.tool.*;
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
+import com.ordevia.aidev.governance.application.ApprovalService;
+import com.ordevia.aidev.governance.application.ToolRiskAssessmentService;
 import com.ordevia.aidev.llm.domain.*;
 import com.ordevia.aidev.session.application.AgentSessionService;
 import com.ordevia.aidev.session.application.WorkspaceSnapshotService;
@@ -24,11 +26,13 @@ public class ToolLoopRunner {
     private static final Logger log=LoggerFactory.getLogger(ToolLoopRunner.class);
     private final LlmGateway llm; private final AgentToolAccessService toolAccess; private final ObjectMapper mapper;
     private final ToolExecutionJpaRepository toolExecutions; private final AgentSessionService sessions; private final WorkspaceSnapshotService snapshots;
-    private final SkillRegistry skills;
+    private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals;
 
     public ToolLoopRunner(LlmGateway llm,AgentToolAccessService toolAccess,ObjectMapper mapper,ToolExecutionJpaRepository toolExecutions,
-                          AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills){
-        this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;this.skills=skills;
+                          AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills,
+                          ToolRiskAssessmentService risks,ApprovalService approvals){
+        this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;
+        this.skills=skills;this.risks=risks;this.approvals=approvals;
     }
 
     public AgentResult run(AgentType agentType,LlmTask task,AgentContext original,int maxSteps,String systemPrompt,String userPrompt){
@@ -69,6 +73,21 @@ public class ToolLoopRunner {
                 List<LlmToolResult> results=new ArrayList<>();
                 for(LlmToolCall call:response.toolCalls()){
                     if(step>=maxSteps)break;step++;
+                    var assessment=risks.assess(call.name(),call.arguments());
+                    if(!assessment.allowed())throw new SecurityException("Tool blocked by autonomy policy: "+call.name()+" ("+assessment.reason()+")");
+                    if(assessment.approvalRequired()){
+                        var approval=approvals.require(context.workItemId(),session.getId(),step,call.name(),call.arguments(),assessment);
+                        if(approval.getStatus()!=com.ordevia.aidev.governance.domain.ApprovalStatus.APPROVED){
+                            sessions.requestPause(session.getId());
+                            var approvalPoint=sessions.controlPoint(session.getId(),step,AgentCheckpointType.APPROVAL_REQUESTED,
+                                    "Approval required for "+call.name()+" ("+assessment.reason()+") request="+approval.getId(),response.turnId());
+                            capture(session.getId(),approvalPoint.checkpointId(),context.repository());
+                            if(approvalPoint.status()==AgentSessionStatus.PAUSED)sessions.awaitResumeOrCancel(session.getId());
+                            approvals.ensureApproved(approval.getId());
+                            sessions.controlPoint(session.getId(),step,AgentCheckpointType.APPROVAL_APPROVED,"Human approved "+call.name()+" request="+approval.getId(),response.turnId());
+                        }
+                    }
+
                     ToolExecution execution=new ToolExecution(UUID.randomUUID(),context.workItemId(),session.getId(),agentType,step,call.name(),mapper.writeValueAsString(call.arguments()));
                     toolExecutions.saveAndFlush(execution);String output;
                     try{ToolResult result=toolAccess.required(agentType,call.name()).execute(context,call.arguments());if(result.success()){execution.succeed(result.output());output=result.output();}else{execution.fail(result.error());output="ERROR: "+result.error();}}
