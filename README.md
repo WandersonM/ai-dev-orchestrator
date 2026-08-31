@@ -2,20 +2,49 @@
 
 MVP local de uma software factory baseada em agentes de IA, com roteamento multi-provider entre OpenAI e Google Gemini.
 
+## Estado atual
+
+Já existe um fluxo funcional de refinamento, implementação e review:
+
+```text
+NEW
+ -> REFINING
+ -> READY_FOR_DEVELOPMENT
+ -> IMPLEMENTING
+ -> REVIEWING
+ -> CHANGES_REQUESTED | READY_FOR_HUMAN_REVIEW
+```
+
+O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e usa tool calling nativo do provider, sem depender de JSON livre gerado em prompt.
+
 ## O que já existe
 
 - WorkItem persistido em PostgreSQL
-- Máquina de estados inicial
+- Máquina de estados de desenvolvimento/review
 - Agent abstraction
 - Refiner Agent
+- Backend Developer Agent
+- Reviewer Agent
 - LLM Router por tarefa/agente
 - OpenAI Gateway via Responses API
 - Gemini Gateway via Interactions API
+- Function/tool calling nativo em OpenAI e Gemini
+- Tool registry
+- `search_code`
+- `read_file`
+- `write_file`
+- `run_command`
+- Git worktree por WorkItem
 - Auditoria de AgentExecution
+- Auditoria persistida de cada ToolExecution
+- Retomada semântica do Backend Agent usando o histórico persistido
 - Workspace root controlado
 - Command allowlist
+- Limite de passos por agente
+- Limite de ciclos de review
 - Flyway
 - Swagger/OpenAPI
+- GitHub Actions com Java 25 + Maven
 - Docker Compose apenas para PostgreSQL
 
 ## Estratégia padrão de modelos
@@ -32,6 +61,7 @@ Tudo é configurável por variável de ambiente; nenhum agente conhece diretamen
 - Maven 3.9+
 - Docker / Docker Compose
 - API key da OpenAI e/ou Gemini de acordo com as rotas habilitadas
+- Git instalado localmente
 
 ## Configurar
 
@@ -50,6 +80,13 @@ export AIDEV_REFINEMENT_MODEL=gpt-5.6-sol
 
 export AIDEV_BACKEND_PROVIDER=GEMINI
 export AIDEV_BACKEND_MODEL=gemini-3.7-flash
+```
+
+Limites dos agentes:
+
+```bash
+export AIDEV_BACKEND_MAX_STEPS=20
+export AIDEV_REVIEW_MAX_ITERATIONS=3
 ```
 
 ## Executar
@@ -74,20 +111,36 @@ curl -X POST http://localhost:8080/api/work-items \
   }'
 ```
 
-Depois execute:
+Avance o workflow chamando o mesmo endpoint enquanto houver uma transição automática disponível:
 
 ```bash
 curl -X POST http://localhost:8080/api/work-items/{id}/start
 ```
 
-O primeiro milestone leva o item de `NEW` para `READY_FOR_DEVELOPMENT` usando o Refiner Agent e a rota `REFINEMENT`.
+Consulte o item:
 
-## Próximo milestone
+```bash
+curl http://localhost:8080/api/work-items/{id}
+```
 
-1. Git worktree por WorkItem
-2. Tool registry para read/search/write/run-tests/git-diff
-3. Backend Developer Agent em loop tool-calling
-4. Reviewer Agent
-5. Ciclo `CHANGES_REQUESTED -> IMPLEMENTING -> REVIEWING`
-6. GitHub PR
-7. Trello webhook/polling
+Consulte todas as ferramentas executadas pelo agente, incluindo argumentos, saída, erro e duração:
+
+```bash
+curl http://localhost:8080/api/work-items/{id}/tool-executions
+```
+
+## Segurança local
+
+Os agentes não executam shell arbitrário. O `LocalCommandExecutor` valida o diretório de trabalho contra o workspace root e o `CommandPolicy` aplica uma allowlist de executáveis. O `.env` e arquivos locais sensíveis ficam fora do Git.
+
+Os gateways usam estado de continuação do provider durante uma execução com ferramentas (`previous_response_id` na OpenAI e `previous_interaction_id` no Gemini). O histórico operacional necessário para retomar uma execução local também é persistido no PostgreSQL.
+
+## Próximos milestones
+
+1. Publicação controlada da branch e criação de Draft PR no GitHub
+2. Persistência de métricas de tokens/custo por AgentExecution
+3. Trello adapter para buscar/refinar cards e atualizar status
+4. Frontend Developer Agent
+5. QA Agent
+6. Security Reviewer
+7. Risk classification e human gates por criticidade
