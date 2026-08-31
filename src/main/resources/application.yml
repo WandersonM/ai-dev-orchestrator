@@ -24,6 +24,8 @@ aidev:
   orchestration:
     max-parallel: ${AIDEV_MAX_PARALLEL:3}
   agents:
+    planning:
+      max-rounds: ${AIDEV_PLANNING_MAX_ROUNDS:3}
     backend:
       max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
     review:
