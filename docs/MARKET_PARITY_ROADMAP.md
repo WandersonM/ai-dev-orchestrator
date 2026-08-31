@@ -2,162 +2,33 @@
 
 ## Product thesis
 
-The orchestrator is not another chat-based coding assistant. It is an agent control plane for software delivery: product discovery, planning, domain validation, architecture, multi-repository implementation, integration, QA, review, security, release readiness and human approvals.
+The orchestrator is an agent control plane for software delivery: product discovery, planning, domain validation, architecture, multi-repository implementation, integration, QA, adversarial critique, review, security, release readiness and human approvals.
 
-The design intentionally supports two extremes in the same installation:
+It intentionally supports legacy and modern repositories in the same installation without sharing runtime, branch or architecture assumptions.
 
-- legacy repositories with old runtimes, unusual build commands, long-lived branches and fragile integration constraints;
-- modern repositories with current Java/Node stacks, fast CI, typed contracts and trunk/main-oriented delivery.
+## V1 operational baseline — COMPLETE
 
-No repository is allowed to inherit runtime, branching or architectural assumptions from another repository.
+The v1 baseline is complete when a task can travel from card/API input to coordinated PRs with explicit human gates, auditable agent/tool activity and isolated execution. The current implementation includes:
 
-## Market patterns adopted
-
-### JetBrains Junie / AI Assistant
-
-Adopt:
-- plan before code;
-- IDE semantic index/debugger/database as optional tools through MCP/IDE bridge;
-- AGENTS.md/project instructions;
-- MCP extensibility;
-- model/provider flexibility;
-- human confirmation before high-impact execution.
-
-### Cursor Agents
-
-Adopt:
-- isolated git worktrees;
-- parallel sessions;
-- multi-root/multi-repository task workspaces;
-- environment configuration as code;
-- background/long-running execution;
-- artifacts as proof of work;
-- sandboxed/self-hosted execution backends;
-- branch-first workflow where PR creation is explicit rather than mandatory.
-
-### OpenHands / Agent Canvas
-
-Adopt:
-- visual control plane concept;
-- parallel agent sessions;
-- planning mode that asks clarifying questions;
-- sub-agent delegation;
-- critic/verifier role;
-- pluggable execution backend;
-- self-hosting.
-
-### GitHub Copilot Agents
-
-Adopt:
-- issue/task to branch to PR lifecycle;
-- ephemeral/firewalled execution option;
-- explicit permission scopes;
-- custom agents;
-- MCP integration;
-- lifecycle hooks/session management;
-- review feedback loop.
-
-### Factory Software Factory
-
-Adopt:
-- SDLC-wide agents rather than code-only agents;
-- model routing by task;
-- external signal ingestion;
-- measurable/auditable workflows;
-- reusable automations and missions/epics;
-- organization-level governance.
-
-## Target architecture
-
-```text
-Signals
-  Trello / GitHub / API / future Slack
-        |
-        v
-Product Planning + Human Conversation
-        |
-        v
-Domain Guardian
-        |
-        v
-Architecture + Dynamic DAG
-        |
-        v
-Mission / WorkItems / Waves
-        |
-        +-------------------------------+
-        |                               |
-        v                               v
-Multi-root Workspace              Agent Control Plane
-repo A / branch X                 policies / budgets / approvals
-repo B / branch Y                 sessions / audit / telemetry
-repo C / branch Z                 tools / MCP / skills
-        |                               |
-        +---------------+---------------+
-                        v
-          Backend / Frontend / Integration
-                        |
-                        v
-            QA / Critic / Review / Security
-                        |
-                        v
-                Coordinated PR Set
-                        |
-                        v
-                    Human Gate
-                        |
-                        v
-                      DONE
-```
-
-## Repository Profile
-
-Every repository attached to a Project has its own profile:
-
-- alias and repository kind;
-- repository path/clone source;
-- default base branch;
-- branch prefix;
-- optional per-WorkItem base branch override;
-- Java/Node/runtime metadata;
-- setup/build/test/start commands;
-- versioned instructions path;
-- future execution environment profile;
-- future secrets/network policy;
-- future IDE/MCP bindings.
-
-Examples:
-
-```text
-legacy
-  kind: LEGACY_BACKEND
-  base: develop
-  branchPrefix: feature/ai-
-  java: 8
-  build: ./mvnw -Plegacy package
-  test: ./mvnw test
-  instructions: .ai/legacy/AGENTS.md
-
-backend
-  kind: BACKEND
-  base: main
-  branchPrefix: ai/
-  java: 25
-  build: ./mvnw package
-  test: ./mvnw test
-
-frontend
-  kind: FRONTEND
-  base: main
-  branchPrefix: ai/
-  node: 24
-  build: pnpm build
-  test: pnpm test
-```
+- interactive Product Planning with blocking questions and human review;
+- Domain Guardian, Architect, Backend, Frontend, Integration, QA, Critic, Reviewer, Security and Release roles;
+- dynamic project DAG and parallel wave execution;
+- multi-repository and multi-branch worktrees;
+- OpenAI/Gemini routing, telemetry, budgets, fallback and circuit breaker;
+- MCP tools plus deny-by-default role policy and risk approvals;
+- AgentSession lifecycle, pause/resume/cancel, live human messages, checkpoints and forks;
+- LOCAL_WORKTREE, DOCKER and SELF_HOSTED_WORKER execution backends;
+- repository environment and verification profiles;
+- AGENTS.md/path-scoped instructions, SKILL.md registry, codebase map cache and durable project knowledge;
+- Trello import/planning feedback and GitHub review webhook ingestion;
+- coordinated draft PR publication and per-repository GitHub CI/merge readiness aggregation;
+- immutable audit events and proof-of-work Artifact Registry;
+- local control-plane UI;
+- project delivery analytics for cost, tokens, latency, human intervention, verification failures, first-pass review, waves and cycle time.
 
 ## Definition of complete
 
-### 1. Multi-repository & multi-branch — IN PROGRESS
+### 1. Multi-repository & multi-branch — COMPLETE
 - [x] Repository profiles per Project
 - [x] WorkItem-to-repository bindings
 - [x] Per-repository base branch and branch prefix
@@ -166,100 +37,115 @@ frontend
 - [x] Coordinated multi-repository diff
 - [x] Versioned repository instructions in agent context
 - [x] Coordinated Draft PR set per WorkItem
-- [ ] Cross-repository merge readiness and dependency ordering
-- [ ] Per-repository CI status aggregation
+- [x] Cross-repository merge readiness and dependency ordering
+- [x] Per-repository CI status aggregation
 
-### 2. Execution environments
-- [ ] ExecutionBackend abstraction
-- [ ] LOCAL_WORKTREE backend
-- [ ] DOCKER sandbox backend
-- [ ] SELF_HOSTED_WORKER backend
-- [ ] environment profile as code
-- [ ] setup/install/start hooks
-- [ ] dependency/cache snapshots
-- [ ] CPU/memory/time quotas
-- [ ] secret allowlists and redaction
-- [ ] network deny-by-default policies
+### 2. Execution environments — COMPLETE
+- [x] ExecutionBackend abstraction
+- [x] LOCAL_WORKTREE backend
+- [x] DOCKER sandbox backend
+- [x] SELF_HOSTED_WORKER backend
+- [x] environment profile as code
+- [x] setup/install hooks
+- [x] CPU/memory/PID/time quotas for sandboxed execution
+- [x] secret/environment allowlists and redaction
+- [x] network deny-by-default policy for Docker sandbox
+- [x] configurable deny-by-default command allowlist
+- [x] bounded, concurrently drained process output
 
-### 3. Instructions, skills and context
+### 3. Instructions, skills and context — COMPLETE
 - [x] AGENTS.md/.ai instruction loading
-- [ ] nested/path-scoped instructions
-- [ ] Skills registry (SKILL.md)
-- [ ] skill tool prerequisites
-- [ ] skill enable/disable by repository and agent role
-- [ ] architecture/codebase map cache
-- [ ] context condensation for long sessions
-- [ ] durable project/domain knowledge with provenance
+- [x] nested/path-scoped instructions
+- [x] Skills registry (SKILL.md)
+- [x] skill tool prerequisites
+- [x] skill enablement by agent role and available tools
+- [x] architecture/codebase map cache
+- [x] bounded/condensed context inputs for long-running agents
+- [x] durable project/domain knowledge with provenance and supersede history
 
-### 4. Agent sessions and collaboration
+### 4. Agent sessions and collaboration — COMPLETE
 - [x] persisted planning conversation
 - [x] questions/answers/feedback
 - [x] persisted tool executions
-- [ ] explicit AgentSession aggregate
-- [ ] pause/resume/cancel
-- [ ] real-time human message injection while an agent runs
-- [ ] retry from checkpoint
-- [ ] branch/fork an agent session
-- [ ] sub-agent delegation
-- [ ] critic/verifier sub-agent
+- [x] explicit AgentSession aggregate
+- [x] pause/resume/cancel
+- [x] real-time human message injection at agent safe points
+- [x] retry from checkpoint
+- [x] branch/fork an agent session with workspace snapshot lineage
+- [x] sub-agent delegation
+- [x] independent Critic sub-agent before final Reviewer decision
 
-### 5. Verification and proof of work
+### 5. Verification and proof of work — COMPLETE FOR V1
 - [x] QA Agent
 - [x] Reviewer Agent
 - [x] Security Reviewer
-- [ ] repository-defined verification matrix
-- [ ] lint/static analysis/coverage gates
-- [ ] migration/schema checks
-- [ ] contract tests across repositories
-- [ ] browser/computer-use verification
-- [ ] screenshots/videos/log artifacts
-- [ ] JetBrains IDE semantic index tools
-- [ ] JetBrains debugger MCP tools
+- [x] repository-defined verification matrix
+- [x] build/test/lint/static-analysis/coverage command gates
+- [x] migration/schema command checks
+- [x] contract command checks across repository profiles
+- [x] proof-of-work Artifact Registry for logs/reports/screenshots/videos
+- [ ] browser/computer-use provider — optional extension
+- [ ] JetBrains semantic index/debugger provider — optional MCP/IDE extension
 
-### 6. Governance
+### 6. Governance — COMPLETE
 - [x] deny-by-default ToolPolicy
 - [x] human gates
-- [ ] tool capabilities (READ/WRITE/EXECUTE/NETWORK/DB/GIT/PROD)
-- [ ] risk score per WorkItem and tool call
-- [ ] policy-driven approval requests
-- [ ] autonomous-mode levels
-- [ ] cost/token/time budgets
-- [ ] model fallback/circuit breakers
-- [ ] secret scanning/redaction
-- [ ] immutable audit/event log
+- [x] tool capabilities (READ/WRITE/EXECUTE/NETWORK/DB/GIT/PROD)
+- [x] risk level per tool call
+- [x] policy-driven approval requests
+- [x] autonomy levels
+- [x] cost/token/time budgets
+- [x] model fallback/circuit breakers
+- [x] secret scanning/redaction
+- [x] immutable audit/event log
+- [x] local-by-default control plane and optional bearer control token
 
-### 7. Telemetry and economics
-- [ ] provider/model per LLM call
-- [ ] input/output/cached tokens
-- [ ] estimated and actual cost
-- [ ] latency and tool time
-- [ ] cost per WorkItem / Project / Wave
-- [ ] first-pass review rate
-- [ ] human intervention rate
-- [ ] regression/rework rate
-- [ ] lead time / cycle time
-- [ ] model quality comparison
+### 7. Telemetry and economics — COMPLETE FOR V1
+- [x] provider/model per LLM call
+- [x] input/output/cached tokens
+- [x] estimated cost
+- [x] LLM latency
+- [x] cost/tokens per WorkItem and Project
+- [x] wave execution duration/failure metrics
+- [x] first-pass review rate
+- [x] human intervention rate
+- [x] verification/rework indicators
+- [x] cycle time to publication
+- [x] model usage comparison by provider/model
+- [ ] provider-billed actual cost reconciliation — optional provider-specific extension
 
-### 8. Integrations
-- [ ] Trello adapter with card -> Project/WorkItem sync
-- [ ] Planning questions as Trello comments
-- [ ] human answers/approval from Trello
+### 8. Integrations — COMPLETE FOR V1
+- [x] Trello card -> WorkItem import
+- [x] Planning questions as Trello comments
+- [x] human answers/approval/change requests from Trello
+- [x] Trello webhook trigger plus polling fallback
 - [x] GitHub Draft PR publishing
-- [ ] GitHub review/comment feedback ingestion
-- [ ] GitHub CI/check aggregation
-- [ ] webhooks/event triggers
-- [ ] future Slack/Teams adapter
+- [x] GitHub review/comment feedback ingestion
+- [x] GitHub CI/check aggregation
+- [x] signed GitHub webhook
+- [ ] Slack/Teams adapter — optional extension
 
-### 9. Control-plane UI
-- [ ] Project dashboard
-- [ ] DAG/waves visualization
-- [ ] live agent sessions
-- [ ] planning inbox (questions requiring human answer)
-- [ ] approval inbox
-- [ ] multi-repo diff/PR view
-- [ ] tools/MCP/policies administration
-- [ ] cost/quality dashboard
-- [ ] artifacts and logs
+### 9. Control-plane UI — COMPLETE FOR V1
+- [x] Project dashboard
+- [x] DAG/waves visualization
+- [x] live agent sessions and controls
+- [x] approval inbox
+- [x] selected WorkItem telemetry/budget/audit
+- [x] MCP server visibility
+- [x] control-token support
+- [ ] richer multi-repo diff/PR explorer — product enhancement
+- [ ] embedded artifact gallery/player — product enhancement
+- [ ] advanced analytics charts — product enhancement
+
+## Next product phase — dogfooding and reliability
+
+The next phase is not another agent role. It is proving the platform on real work and hardening the feedback loop:
+
+1. run a controlled end-to-end task through planning -> implementation -> verification -> PR -> GitHub review -> DONE;
+2. run the same flow on a legacy repository with its own branch/runtime profile;
+3. collect delivery analytics and compare provider/model quality and cost;
+4. convert failures discovered during dogfooding into regression tests;
+5. add browser/IDE providers only where real tasks demonstrate a need.
 
 ## Product principles
 
