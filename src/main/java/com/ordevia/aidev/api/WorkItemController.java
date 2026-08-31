@@ -35,47 +35,29 @@ public class WorkItemController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public WorkItem create(@Valid @RequestBody CreateWorkItemRequest request) {
-        return repository.save(new WorkItem(
-                UUID.randomUUID(),
-                request.externalId(),
-                request.title(),
-                request.description(),
-                request.repositoryPath()));
+        return repository.save(new WorkItem(UUID.randomUUID(), request.externalId(), request.title(), request.description(), request.repositoryPath()));
     }
 
-    @GetMapping
-    public List<WorkItem> list() {
-        return repository.findAll();
-    }
+    @GetMapping public List<WorkItem> list() { return repository.findAll(); }
 
     @GetMapping("/{id}")
     public WorkItem get(@PathVariable UUID id) {
-        return repository.findById(id)
-                .orElseThrow(() -> new java.util.NoSuchElementException("WorkItem not found"));
+        return repository.findById(id).orElseThrow(() -> new java.util.NoSuchElementException("WorkItem not found"));
     }
 
     @GetMapping("/{id}/tool-executions")
     public List<ToolExecution> toolExecutions(@PathVariable UUID id) {
-        if (!repository.existsById(id)) {
-            throw new java.util.NoSuchElementException("WorkItem not found");
-        }
+        if (!repository.existsById(id)) throw new java.util.NoSuchElementException("WorkItem not found");
         return toolExecutions.findByWorkItemIdOrderByStepNumberAsc(id);
     }
 
-    @PostMapping("/{id}/start")
-    public WorkItem start(@PathVariable UUID id) {
-        return workflow.process(id);
+    @PostMapping("/{id}/start") public WorkItem start(@PathVariable UUID id) { return workflow.process(id); }
+    @PostMapping("/{id}/publish") public WorkItem publish(@PathVariable UUID id) { return githubPublisher.publish(id); }
+
+    @PostMapping("/{id}/complete")
+    public WorkItem complete(@PathVariable UUID id) {
+        return workflow.markDone(id);
     }
 
-    @PostMapping("/{id}/publish")
-    public WorkItem publish(@PathVariable UUID id) {
-        return githubPublisher.publish(id);
-    }
-
-    public record CreateWorkItemRequest(
-            String externalId,
-            @NotBlank String title,
-            String description,
-            @NotBlank String repositoryPath) {
-    }
+    public record CreateWorkItemRequest(String externalId, @NotBlank String title, String description, @NotBlank String repositoryPath) {}
 }
