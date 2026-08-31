@@ -31,6 +31,10 @@ aidev:
     token: ${AIDEV_GITHUB_TOKEN:}
     api-base-url: ${AIDEV_GITHUB_API_BASE_URL:https://api.github.com}
     base-branch: ${AIDEV_GITHUB_BASE_BRANCH:main}
+  mcp:
+    enabled: ${AIDEV_MCP_ENABLED:false}
+    request-timeout: ${AIDEV_MCP_REQUEST_TIMEOUT:30s}
+    servers: {}
   llm:
     routes:
       refinement:
