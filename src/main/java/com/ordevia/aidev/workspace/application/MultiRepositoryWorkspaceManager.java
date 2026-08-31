@@ -1,5 +1,6 @@
 package com.ordevia.aidev.workspace.application;
 
+import com.ordevia.aidev.execution.application.EnvironmentPreparationService;
 import com.ordevia.aidev.project.domain.ProjectRepository;
 import com.ordevia.aidev.project.infrastructure.ProjectRepositoryJpaRepository;
 import com.ordevia.aidev.workitem.domain.WorkItem;
@@ -18,17 +19,20 @@ public class MultiRepositoryWorkspaceManager {
     private final ProjectRepositoryJpaRepository repositories;
     private final GitWorktreeManager worktrees;
     private final RepositoryInstructionsLoader instructionsLoader;
+    private final EnvironmentPreparationService environmentPreparation;
     private final Path workspaceRoot;
 
     public MultiRepositoryWorkspaceManager(WorkItemRepositoryBindingJpaRepository bindings,
                                            ProjectRepositoryJpaRepository repositories,
                                            GitWorktreeManager worktrees,
                                            RepositoryInstructionsLoader instructionsLoader,
+                                           EnvironmentPreparationService environmentPreparation,
                                            @Value("${aidev.workspace-root}") String workspaceRoot) {
         this.bindings = bindings;
         this.repositories = repositories;
         this.worktrees = worktrees;
         this.instructionsLoader = instructionsLoader;
+        this.environmentPreparation = environmentPreparation;
         this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
     }
 
@@ -56,7 +60,9 @@ public class MultiRepositoryWorkspaceManager {
             profiles.add(profile);
             instructions.add(instructionsLoader.load(worktree.path(), profile.getInstructionsPath()));
         }
-        return new TaskWorkspace(worktrees.taskRoot(item.getExternalId()), List.copyOf(prepared), manifest(prepared, profiles, instructions));
+        Path taskRoot = worktrees.taskRoot(item.getExternalId());
+        environmentPreparation.prepare(item, taskRoot);
+        return new TaskWorkspace(taskRoot, List.copyOf(prepared), manifest(prepared, profiles, instructions));
     }
 
     private Path sourcePath(String repositoryPath) {
@@ -87,7 +93,7 @@ public class MultiRepositoryWorkspaceManager {
                 out.append("\n### Versioned repository instructions\n").append(repositoryInstructions).append('\n');
             }
         }
-        out.append("\nAll file paths passed to tools are relative to this task workspace root. For example: backend/src/... or legacy/pom.xml.\n");
+        out.append("\nAll file paths passed to tools are relative to this task workspace root. For run_command use cwd with the repository alias in multi-root tasks.\n");
         return out.toString();
     }
 
