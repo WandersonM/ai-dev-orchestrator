@@ -3,6 +3,7 @@ package com.ordevia.aidev.api;
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
 import com.ordevia.aidev.github.application.GitHubPublisher;
+import com.ordevia.aidev.github.domain.WorkItemPullRequest;
 import com.ordevia.aidev.workflow.application.WorkflowEngine;
 import com.ordevia.aidev.workitem.domain.WorkItem;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemJpaRepository;
@@ -51,6 +52,11 @@ public class WorkItemController {
         return toolExecutions.findByWorkItemIdOrderByStepNumberAsc(id);
     }
 
+    @GetMapping("/{id}/pull-requests")
+    public List<WorkItemPullRequest> pullRequests(@PathVariable UUID id) {
+        return githubPublisher.list(id);
+    }
+
     @PostMapping("/{id}/start") public WorkItem start(@PathVariable UUID id) { return workflow.process(id); }
     @PostMapping("/{id}/publish") public WorkItem publish(@PathVariable UUID id) { return githubPublisher.publish(id); }
 
@@ -64,9 +70,7 @@ public class WorkItemController {
     public WorkItem approveRelease(@PathVariable UUID id) { return workflow.approveReleaseOverride(id); }
 
     @PostMapping("/{id}/complete")
-    public WorkItem complete(@PathVariable UUID id) {
-        return workflow.markDone(id);
-    }
+    public WorkItem complete(@PathVariable UUID id) { return workflow.markDone(id); }
 
     public record CreateWorkItemRequest(String externalId, @NotBlank String title, String description, @NotBlank String repositoryPath) {}
 }
