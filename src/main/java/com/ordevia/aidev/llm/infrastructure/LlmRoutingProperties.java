@@ -12,6 +12,7 @@ public record LlmRoutingProperties(Routes routes, OpenAi openai, Gemini gemini) 
             Route frontend,
             Route qa,
             Route review,
+            Route critic,
             Route security,
             Route integration,
             Route release,
