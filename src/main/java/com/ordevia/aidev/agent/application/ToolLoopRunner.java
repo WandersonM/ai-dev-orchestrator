@@ -3,6 +3,7 @@ package com.ordevia.aidev.agent.application;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ordevia.aidev.agent.domain.*;
 import com.ordevia.aidev.agent.policy.AgentToolAccessService;
+import com.ordevia.aidev.agent.skill.SkillRegistry;
 import com.ordevia.aidev.agent.tool.*;
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
@@ -23,22 +24,29 @@ public class ToolLoopRunner {
     private static final Logger log=LoggerFactory.getLogger(ToolLoopRunner.class);
     private final LlmGateway llm; private final AgentToolAccessService toolAccess; private final ObjectMapper mapper;
     private final ToolExecutionJpaRepository toolExecutions; private final AgentSessionService sessions; private final WorkspaceSnapshotService snapshots;
+    private final SkillRegistry skills;
 
     public ToolLoopRunner(LlmGateway llm,AgentToolAccessService toolAccess,ObjectMapper mapper,ToolExecutionJpaRepository toolExecutions,
-                          AgentSessionService sessions,WorkspaceSnapshotService snapshots){this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;}
+                          AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills){
+        this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;this.skills=skills;
+    }
 
     public AgentResult run(AgentType agentType,LlmTask task,AgentContext original,int maxSteps,String systemPrompt,String userPrompt){
         var session=sessions.openOrResume(original.workItemId(),agentType);
         AgentContext context=effectiveContext(original,session);
         int step=session.getCurrentStep();
         try{
+            List<AgentTool> allowedTools=List.copyOf(toolAccess.allowedTools(agentType));
+            List<LlmToolDefinition> definitions=toolDefinitions(allowedTools);
+            String skillContext=skills.contextFor(agentType,context.repository(),allowedTools.stream().map(AgentTool::name).toList());
             List<ToolExecution> previous=sessions.toolHistory(session.getId()); String transcript=buildTranscript(previous);
             step=Math.max(step,previous.stream().mapToInt(ToolExecution::getStepNumber).max().orElse(0));
             String workspaceManifest=Objects.toString(context.metadata().getOrDefault("workspaceManifest","Single repository workspace."),"");
             String basePrompt=userPrompt+"\n\nWORKSPACE MANIFEST:\n"+workspaceManifest+
                     "\n\nIMPORTANT MULTI-ROOT RULES:\nWhen multiple roots exist, prefix file paths with repository alias and set run_command.cwd to that alias. Do not assume roots share runtime, conventions or build tools."+
+                    (skillContext.isBlank()?"":"\n\nVERSIONED REPOSITORY SKILLS:\n"+skillContext)+
                     "\n\nSESSION ATTEMPT: "+session.getAttemptNumber()+"\nPREVIOUS PERSISTED TOOL HISTORY:\n"+transcript;
-            LlmToolRequest request=LlmToolRequest.initial(task,systemPrompt,basePrompt,toolDefinitions(agentType));
+            LlmToolRequest request=LlmToolRequest.initial(task,systemPrompt,basePrompt,definitions);
 
             while(step<maxSteps){
                 var control=sessions.controlPoint(session.getId(),step,AgentCheckpointType.BEFORE_LLM,"Before LLM turn",request.previousTurnId());
@@ -47,7 +55,7 @@ public class ToolLoopRunner {
                 if(control.status()==AgentSessionStatus.CANCELLED)throw new AgentSessionService.AgentSessionCancelledException("Agent session cancelled");
                 if(!control.humanMessages().isEmpty()){
                     transcript=buildTranscript(sessions.toolHistory(session.getId()));
-                    request=LlmToolRequest.initial(task,systemPrompt,basePrompt+"\n\nLATEST TOOL HISTORY:\n"+transcript+"\n\nLIVE HUMAN GUIDANCE:\n- "+String.join("\n- ",control.humanMessages()),toolDefinitions(agentType));
+                    request=LlmToolRequest.initial(task,systemPrompt,basePrompt+"\n\nLATEST TOOL HISTORY:\n"+transcript+"\n\nLIVE HUMAN GUIDANCE:\n- "+String.join("\n- ",control.humanMessages()),definitions);
                 }
 
                 LlmToolResponse response=llm.executeTools(request);
@@ -79,14 +87,11 @@ public class ToolLoopRunner {
         catch(Exception e){sessions.fail(session.getId(),step,e.getMessage());return AgentResult.failure(e.getMessage());}
     }
 
-    private AgentContext effectiveContext(AgentContext original,AgentSession session){
-        if(session.getWorkspacePath()==null||session.getWorkspacePath().isBlank())return original;
-        return new AgentContext(original.workItemId(),Path.of(session.getWorkspacePath()),original.branch(),original.title(),original.description(),original.specification(),original.metadata());
-    }
+    private AgentContext effectiveContext(AgentContext original,AgentSession session){if(session.getWorkspacePath()==null||session.getWorkspacePath().isBlank())return original;return new AgentContext(original.workItemId(),Path.of(session.getWorkspacePath()),original.branch(),original.title(),original.description(),original.specification(),original.metadata());}
     private void capture(UUID sessionId,UUID checkpointId,Path root){if(checkpointId==null)return;try{snapshots.capture(sessionId,checkpointId,root);}catch(Exception e){log.warn("Checkpoint {} is not restorable: {}",checkpointId,e.getMessage());}}
     private AgentResult fail(UUID sessionId,int step,String error){sessions.fail(sessionId,step,error);return AgentResult.failure(error);}
 
-    private List<LlmToolDefinition> toolDefinitions(AgentType agentType){List<LlmToolDefinition> defs=new ArrayList<>();for(AgentTool tool:toolAccess.allowedTools(agentType)){Map<String,Object> schema=switch(tool.name()){case "search_code"->objectSchema(Map.of("query",Map.of("type","string")),List.of("query"));case "read_file"->objectSchema(Map.of("path",Map.of("type","string")),List.of("path"));case "write_file"->objectSchema(Map.of("path",Map.of("type","string"),"content",Map.of("type","string")),List.of("path","content"));case "run_command"->objectSchema(Map.of("command",Map.of("type","array","items",Map.of("type","string")),"cwd",Map.of("type","string")),List.of("command"));default->tool.inputSchema();};defs.add(new LlmToolDefinition(tool.name(),tool.description(),schema));}return defs;}
+    private List<LlmToolDefinition> toolDefinitions(List<AgentTool> allowedTools){List<LlmToolDefinition> defs=new ArrayList<>();for(AgentTool tool:allowedTools){Map<String,Object> schema=switch(tool.name()){case "search_code"->objectSchema(Map.of("query",Map.of("type","string")),List.of("query"));case "read_file"->objectSchema(Map.of("path",Map.of("type","string")),List.of("path"));case "write_file"->objectSchema(Map.of("path",Map.of("type","string"),"content",Map.of("type","string")),List.of("path","content"));case "run_command"->objectSchema(Map.of("command",Map.of("type","array","items",Map.of("type","string")),"cwd",Map.of("type","string")),List.of("command"));default->tool.inputSchema();};defs.add(new LlmToolDefinition(tool.name(),tool.description(),schema));}return defs;}
     private Map<String,Object> objectSchema(Map<String,Object> properties,List<String> required){Map<String,Object>s=new LinkedHashMap<>();s.put("type","object");s.put("properties",properties);s.put("required",required);s.put("additionalProperties",false);return s;}
     private String buildTranscript(List<ToolExecution> executions){String transcript="";for(ToolExecution e:executions){String outcome=switch(e.getStatus()){case SUCCEEDED->e.getOutputText();case FAILED->"ERROR: "+e.getErrorMessage();case RUNNING->"INTERRUPTED";};transcript=append(transcript,"STEP "+e.getStepNumber()+" TOOL "+e.getToolName()+" ARGS "+e.getArgumentsJson()+" => "+outcome);}return transcript;}
     private String append(String t,String line){String u=t+"\n"+line;return u.length()>50_000?u.substring(u.length()-50_000):u;}
