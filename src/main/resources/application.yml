@@ -21,6 +21,8 @@ springdoc:
     path: /swagger-ui.html
 aidev:
   workspace-root: ${AIDEV_WORKSPACE_ROOT:./workspace}
+  orchestration:
+    max-parallel: ${AIDEV_MAX_PARALLEL:3}
   agents:
     backend:
       max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
