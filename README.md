@@ -1,10 +1,10 @@
 # AI Dev Orchestrator
 
-MVP local de uma software factory baseada em agentes de IA, com roteamento multi-provider entre OpenAI e Google Gemini.
+MVP local de uma software factory baseada em agentes de IA, com OpenAI/Gemini, tool calling, MCP, políticas por agente e orquestração de projetos em DAG.
 
 ## Estado atual
 
-Já existe um fluxo funcional de refinamento, implementação e review:
+Um WorkItem individual percorre:
 
 ```text
 NEW
@@ -13,37 +13,41 @@ NEW
  -> IMPLEMENTING
  -> REVIEWING
  -> CHANGES_REQUESTED | READY_FOR_HUMAN_REVIEW
+ -> DONE (gate humano)
 ```
 
-O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e usa tool calling nativo do provider. Tools locais e tools descobertas via MCP entram no mesmo `ToolRegistry`, mas só são expostas e executadas quando autorizadas pelo `ToolPolicy` do agente.
+Projetos agrupam WorkItems e dependências `blockedBy`. O orchestrator calcula ondas topológicas e executa, em paralelo, apenas itens cujos blockers estejam `DONE`.
 
-## O que já existe
+```text
+A ---------> B -----> D
+ \--------> C -----/
 
-- WorkItem persistido em PostgreSQL
-- Máquina de estados de desenvolvimento/review
+Wave 1: A
+Wave 2: B + C
+Wave 3: D
+```
+
+Cada WorkItem usa um `git worktree` isolado. Antes de criar uma nova worktree, o orchestrator atualiza `origin/<base-branch>` e cria a branch da IA sobre essa referência, para que uma nova onda nasça da main remota mais recente.
+
+## Principais capacidades
+
+- Project + WorkItem persistidos em PostgreSQL
+- Dependências `blockedBy` persistidas e validadas
+- Detecção de ciclos no DAG
+- Planejamento de ondas topológicas
+- Execução paralela com virtual threads e limite configurável
+- `DONE` como condição de desbloqueio de dependências
+- Optimistic locking em WorkItem
 - Refiner Agent, Backend Developer Agent e Reviewer Agent
-- LLM Router por tarefa/agente
 - OpenAI Responses API + native function calling
 - Gemini Interactions API + native function calling
-- Tool registry dinâmico
-- ToolPolicy por AgentType com allow/deny e wildcard
-- Enforcement antes de expor a tool ao LLM e novamente antes da execução
-- Endpoint de auditoria da política efetiva
+- Tool registry dinâmico e ToolPolicy deny-by-default
 - Tools locais: `search_code`, `read_file`, `write_file`, `run_command`
-- MCP Java SDK 2.x
-- MCP client STDIO
-- MCP client Streamable HTTP
-- Discovery automático via `tools/list`
-- MCP tools convertidas automaticamente para `AgentTool`
-- Namespace de tools MCP: `mcp_<server>_<tool>`
-- Filtro `include-tools` / `exclude-tools` por servidor
-- Reconnect e status de servidores MCP via REST
-- Git worktree por WorkItem
+- MCP STDIO + Streamable HTTP + discovery `tools/list`
+- MCP tools adaptadas automaticamente para AgentTool
 - Auditoria de AgentExecution e ToolExecution
-- Retomada semântica usando histórico persistido
-- Workspace root controlado e command allowlist
-- Limite de passos e ciclos de review
-- Publicação explícita para Draft PR no GitHub, desabilitada por padrão
+- Git worktree por WorkItem
+- Publicação explícita para Draft PR no GitHub
 - Flyway, Swagger/OpenAPI e GitHub Actions Java 25
 
 ## Requisitos
@@ -53,7 +57,7 @@ O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e u
 - Docker / Docker Compose
 - Git
 - API key OpenAI e/ou Gemini para as rotas habilitadas
-- Runtime necessário aos MCPs STDIO usados, por exemplo Node/npm, Python/uv ou Java
+- Runtime dos MCPs STDIO usados, por exemplo Node/npm, Python/uv ou Java
 
 ## Executar
 
@@ -64,9 +68,75 @@ mvn spring-boot:run
 
 Swagger: `http://localhost:8080/swagger-ui.html`
 
+## Orquestração por projeto
+
+Paralelismo máximo:
+
+```bash
+export AIDEV_MAX_PARALLEL=3
+```
+
+Criar projeto:
+
+```bash
+curl -X POST http://localhost:8080/api/projects \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name":"Financeiro ERP",
+    "description":"Nova jornada financeira",
+    "repositoryPath":"repositories/erp-backend"
+  }'
+```
+
+Criar o primeiro ticket:
+
+```bash
+curl -X POST http://localhost:8080/api/projects/{projectId}/work-items \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "externalId":"CARD-101",
+    "title":"Criar entidade Conta Bancária",
+    "description":"...",
+    "blockedBy":[]
+  }'
+```
+
+Criar um ticket dependente:
+
+```bash
+curl -X POST http://localhost:8080/api/projects/{projectId}/work-items \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "externalId":"CARD-102",
+    "title":"Criar API de contas",
+    "description":"...",
+    "blockedBy":["{workItemIdCard101}"]
+  }'
+```
+
+Consultar o DAG, ondas, ciclos e itens executáveis agora:
+
+```bash
+curl http://localhost:8080/api/projects/{projectId}/dag
+```
+
+Executar em paralelo toda a fronteira liberada do DAG até cada item chegar a um gate:
+
+```bash
+curl -X POST http://localhost:8080/api/projects/{projectId}/execute-ready
+```
+
+Após review/merge humano de um item em `READY_FOR_HUMAN_REVIEW`, marque-o concluído:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{workItemId}/complete
+```
+
+Somente `DONE` satisfaz `blockedBy`; portanto a próxima onda não começa apenas porque a IA terminou ou abriu um PR.
+
 ## Tool Policy
 
-A política é deny-by-default. A configuração padrão permite ao Backend Developer apenas as tools locais necessárias e mantém o Refiner sem acesso a tools:
+A política é deny-by-default e aplicada duas vezes: antes da tool ser exposta ao LLM e antes da execução.
 
 ```yaml
 aidev:
@@ -79,7 +149,7 @@ aidev:
           - read_file
           - write_file
           - run_command
-        deny: []
+          - mcp_context7_*
       REVIEWER:
         allow:
           - search_code
@@ -93,29 +163,9 @@ aidev:
           - '*'
 ```
 
-`deny` sempre vence `allow`. Os padrões aceitam wildcard `*`.
+`deny` sempre vence `allow` e padrões aceitam wildcard `*`.
 
-Para liberar somente um MCP de documentação para o Backend Agent, prefira uma regra explícita no `application-local.yml`:
-
-```yaml
-aidev:
-  tool-policy:
-    policies:
-      BACKEND_DEVELOPER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
-          - mcp_context7_*
-        deny:
-          - mcp_context7_*delete*
-          - mcp_context7_*write*
-```
-
-Evite liberar `mcp_*` globalmente quando o servidor possui tools mutáveis ou administrativas.
-
-Audite a política efetiva, incluindo MCPs registrados dinamicamente:
+Auditoria:
 
 ```bash
 curl http://localhost:8080/api/tool-policies
@@ -131,9 +181,7 @@ export AIDEV_MCP_ENABLED=true
 export AIDEV_MCP_REQUEST_TIMEOUT=30s
 ```
 
-Os servidores são definidos em `application-local.yml` ou outro profile externo. Não coloque tokens reais em arquivo versionado.
-
-### Exemplo STDIO
+Exemplo STDIO em `application-local.yml`:
 
 ```yaml
 aidev:
@@ -141,33 +189,13 @@ aidev:
     enabled: true
     servers:
       filesystem:
-        enabled: true
         transport: STDIO
         command: npx
-        args:
-          - -y
-          - "@modelcontextprotocol/server-filesystem"
-          - "/caminho/permitido"
-        include-tools:
-          - read_file
-          - list_directory
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/caminho/permitido"]
+        include-tools: [read_file, list_directory]
 ```
 
-Variáveis específicas do processo podem ser passadas explicitamente:
-
-```yaml
-aidev:
-  mcp:
-    servers:
-      example:
-        transport: STDIO
-        command: npx
-        args: ["-y", "@vendor/server"]
-        env:
-          API_TOKEN: ${EXAMPLE_MCP_TOKEN}
-```
-
-### Exemplo Streamable HTTP
+Exemplo Streamable HTTP:
 
 ```yaml
 aidev:
@@ -175,28 +203,23 @@ aidev:
     enabled: true
     servers:
       docs:
-        enabled: true
         transport: STREAMABLE_HTTP
         url: https://example.com
         endpoint: /mcp
         headers:
           Authorization: "Bearer ${DOCS_MCP_TOKEN}"
-        exclude-tools:
-          - dangerous_delete
 ```
 
-Após o bootstrap, o orchestrator executa `initialize` + `tools/list`. Uma tool remota como `search_docs` no servidor `docs` é exposta como `mcp_docs_search_docs`, desde que o ToolPolicy do agente também autorize esse nome.
-
-### Operação MCP
+Operação:
 
 ```bash
 curl http://localhost:8080/api/mcp/servers
 curl -X POST http://localhost:8080/api/mcp/servers/docs/reconnect
 ```
 
-Falha em um servidor MCP não impede o orchestrator de iniciar; o servidor fica com status `FAILED` e pode ser reconectado depois.
+## WorkItem individual
 
-## Criar um WorkItem
+Ainda é possível usar o modo simples sem Project:
 
 ```bash
 curl -X POST http://localhost:8080/api/work-items \
@@ -209,34 +232,36 @@ curl -X POST http://localhost:8080/api/work-items \
   }'
 ```
 
-Avance o workflow:
+Avançar uma transição:
 
 ```bash
 curl -X POST http://localhost:8080/api/work-items/{id}/start
 ```
 
-Auditoria das ferramentas:
+Auditoria das tools:
 
 ```bash
 curl http://localhost:8080/api/work-items/{id}/tool-executions
 ```
 
-## Segurança
+## Segurança e governança
 
 - `.env` e `application-local.yml` não devem ser versionados.
-- Shell local passa por `CommandPolicy` e workspace root.
-- ToolPolicy é deny-by-default e aplicado duas vezes: exposição + execução.
+- Shell local passa por CommandPolicy e workspace root.
+- ToolPolicy é deny-by-default.
 - MCP fica desabilitado por padrão.
-- Tools MCP podem ser limitadas no servidor com `include-tools`/`exclude-tools` e no agente com `ToolPolicy`.
-- Use credenciais de menor privilégio possível em MCPs externos.
-- Publicação GitHub exige habilitação explícita e só ocorre em `READY_FOR_HUMAN_REVIEW`.
+- Dependências não atravessam Projects e ciclos são rejeitados.
+- WorkItem usa optimistic locking contra processamento concorrente acidental.
+- Uma dependência só é liberada por `DONE`, que representa o gate humano concluído.
+- Novas worktrees partem de `origin/<base-branch>` atualizado.
+- Publicação GitHub exige habilitação explícita.
 
 ## Próximos milestones
 
-1. Classificação de risco/capabilities para tools e human approval em operações sensíveis
-2. Persistência de métricas de tokens/custo por AgentExecution
-3. Trello adapter
+1. Persistir WaveExecution/ProjectExecution e métricas por onda
+2. Classificação de risco/capabilities e aprovação humana para tools sensíveis
+3. Trello adapter para importar cards e `blockedBy`
 4. Frontend Developer Agent
 5. QA Agent
 6. Security Reviewer
-7. JetBrains bridge opcional para índices, inspections e refactors
+7. JetBrains bridge opcional
