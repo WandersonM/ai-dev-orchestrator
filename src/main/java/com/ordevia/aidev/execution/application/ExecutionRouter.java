@@ -38,10 +38,10 @@ public class ExecutionRouter {
 
     public ExecutionResult execute(UUID workItemId,
                                    Path taskRoot,
-                                   Path workingDirectory,
+                                   Path requestedWorkingDirectory,
                                    List<String> command) {
         WorkItem item = workItems.findById(workItemId).orElseThrow(() -> new NoSuchElementException("WorkItem not found"));
-        Resolution resolution = resolve(item, taskRoot, workingDirectory);
+        Resolution resolution = resolve(item, taskRoot, requestedWorkingDirectory);
         EnvironmentProfile profile = resolution.profile();
         ExecutionBackendType type = profile == null || !profile.isEnabled()
                 ? ExecutionBackendType.LOCAL_WORKTREE
@@ -50,20 +50,22 @@ public class ExecutionRouter {
                 .orElseThrow(() -> new IllegalStateException("Execution backend not registered: " + type));
         Duration timeout = Duration.ofSeconds(profile == null ? 300 : profile.getTimeoutSeconds());
         Map<String, String> environment = resolveEnvironment(profile);
-        return backend.execute(new ExecutionRequest(taskRoot, workingDirectory, command, timeout, profileOrDefault(profile), environment));
+        return backend.execute(new ExecutionRequest(taskRoot, resolution.workingDirectory(), command, timeout, profileOrDefault(profile), environment));
     }
 
-    private Resolution resolve(WorkItem item, Path taskRoot, Path workingDirectory) {
-        if (item.getProjectId() == null) return new Resolution(null, null);
+    private Resolution resolve(WorkItem item, Path taskRoot, Path requestedWorkingDirectory) {
+        Path root = taskRoot.toAbsolutePath().normalize();
+        Path requested = requestedWorkingDirectory.toAbsolutePath().normalize();
+        if (!requested.startsWith(root)) throw new SecurityException("Working directory outside task root");
+        if (item.getProjectId() == null) return new Resolution(null, null, requested);
+
         List<WorkItemRepositoryBinding> itemBindings = bindings.findByWorkItemIdOrderByCreatedAtAsc(item.getId());
-        if (itemBindings.isEmpty()) return new Resolution(null, null);
+        if (itemBindings.isEmpty()) return new Resolution(null, null, requested);
 
         WorkItemRepositoryBinding selected;
-        Path root = taskRoot.toAbsolutePath().normalize();
-        Path cwd = workingDirectory.toAbsolutePath().normalize();
-        if (!cwd.startsWith(root)) throw new SecurityException("Working directory outside task root");
-        Path relative = root.relativize(cwd);
-        if (relative.getNameCount() > 0 && !relative.toString().isBlank()) {
+        Path relative = root.relativize(requested);
+        boolean explicitCwd = relative.getNameCount() > 0 && !relative.toString().isBlank();
+        if (explicitCwd) {
             String alias = relative.getName(0).toString();
             selected = itemBindings.stream()
                     .filter(binding -> repositories.findById(binding.getProjectRepositoryId())
@@ -78,8 +80,10 @@ public class ExecutionRouter {
 
         ProjectRepository repository = repositories.findById(selected.getProjectRepositoryId())
                 .orElseThrow(() -> new IllegalStateException("Bound repository profile not found"));
+        Path effectiveCwd = explicitCwd ? requested : root.resolve(repository.getAlias()).normalize();
+        if (!effectiveCwd.startsWith(root)) throw new SecurityException("Resolved repository cwd outside task root");
         EnvironmentProfile profile = profiles.findByProjectRepositoryId(repository.getId()).orElse(null);
-        return new Resolution(repository, profile);
+        return new Resolution(repository, profile, effectiveCwd);
     }
 
     private Map<String, String> resolveEnvironment(EnvironmentProfile profile) {
@@ -110,5 +114,5 @@ public class ExecutionRouter {
                 null, com.ordevia.aidev.execution.domain.NetworkPolicy.DENY, 2.0, 2048, 256, 300, null, null, null);
     }
 
-    private record Resolution(ProjectRepository repository, EnvironmentProfile profile) {}
+    private record Resolution(ProjectRepository repository, EnvironmentProfile profile, Path workingDirectory) {}
 }
