@@ -9,6 +9,7 @@ import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
 import com.ordevia.aidev.governance.application.ApprovalService;
 import com.ordevia.aidev.governance.application.ToolRiskAssessmentService;
+import com.ordevia.aidev.governance.application.WorkItemBudgetService;
 import com.ordevia.aidev.llm.domain.*;
 import com.ordevia.aidev.session.application.AgentSessionService;
 import com.ordevia.aidev.session.application.WorkspaceSnapshotService;
@@ -27,13 +28,14 @@ public class ToolLoopRunner {
     private static final Logger log=LoggerFactory.getLogger(ToolLoopRunner.class);
     private final LlmGateway llm; private final AgentToolAccessService toolAccess; private final ObjectMapper mapper;
     private final ToolExecutionJpaRepository toolExecutions; private final AgentSessionService sessions; private final WorkspaceSnapshotService snapshots;
-    private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals; private final LlmTelemetryService telemetry;
+    private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals;
+    private final LlmTelemetryService telemetry; private final WorkItemBudgetService budgets;
 
     public ToolLoopRunner(LlmGateway llm,AgentToolAccessService toolAccess,ObjectMapper mapper,ToolExecutionJpaRepository toolExecutions,
                           AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills,
-                          ToolRiskAssessmentService risks,ApprovalService approvals,LlmTelemetryService telemetry){
+                          ToolRiskAssessmentService risks,ApprovalService approvals,LlmTelemetryService telemetry,WorkItemBudgetService budgets){
         this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;
-        this.skills=skills;this.risks=risks;this.approvals=approvals;this.telemetry=telemetry;
+        this.skills=skills;this.risks=risks;this.approvals=approvals;this.telemetry=telemetry;this.budgets=budgets;
     }
 
     public AgentResult run(AgentType agentType,LlmTask task,AgentContext original,int maxSteps,String systemPrompt,String userPrompt){
@@ -63,6 +65,7 @@ public class ToolLoopRunner {
                     request=LlmToolRequest.initial(task,systemPrompt,basePrompt+"\n\nLATEST TOOL HISTORY:\n"+transcript+"\n\nLIVE HUMAN GUIDANCE:\n- "+String.join("\n- ",control.humanMessages()),definitions);
                 }
 
+                budgets.assertWithinBudget(context.workItemId());
                 LlmToolResponse response=llm.executeTools(request);
                 telemetry.record(context.workItemId(),session.getId(),agentType,task,response);
                 sessions.controlPoint(session.getId(),step,AgentCheckpointType.AFTER_LLM,trim(response.text(),4000),response.turnId());
