@@ -88,7 +88,16 @@ public class ProjectDagPlanner {
 
     private boolean isWorkflowExecutable(WorkItem item) {
         return switch (item.getStatus()) {
-            case NEW, READY_FOR_ARCHITECTURE, READY_FOR_DEVELOPMENT, CHANGES_REQUESTED, REVIEWING -> true;
+            case NEW,
+                 READY_FOR_DOMAIN_VALIDATION,
+                 READY_FOR_ARCHITECTURE,
+                 READY_FOR_DEVELOPMENT,
+                 INTEGRATING,
+                 QA_VALIDATING,
+                 REVIEWING,
+                 SECURITY_REVIEWING,
+                 RELEASE_PREPARING,
+                 CHANGES_REQUESTED -> true;
             default -> false;
         };
     }
