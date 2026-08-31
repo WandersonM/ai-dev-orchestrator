@@ -15,7 +15,7 @@ NEW
  -> CHANGES_REQUESTED | READY_FOR_HUMAN_REVIEW
 ```
 
-O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e usa tool calling nativo do provider. Tools locais e tools descobertas via MCP entram no mesmo `ToolRegistry`.
+O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e usa tool calling nativo do provider. Tools locais e tools descobertas via MCP entram no mesmo `ToolRegistry`, mas só são expostas e executadas quando autorizadas pelo `ToolPolicy` do agente.
 
 ## O que já existe
 
@@ -26,6 +26,9 @@ O Backend Developer Agent trabalha em um `git worktree` isolado por WorkItem e u
 - OpenAI Responses API + native function calling
 - Gemini Interactions API + native function calling
 - Tool registry dinâmico
+- ToolPolicy por AgentType com allow/deny e wildcard
+- Enforcement antes de expor a tool ao LLM e novamente antes da execução
+- Endpoint de auditoria da política efetiva
 - Tools locais: `search_code`, `read_file`, `write_file`, `run_command`
 - MCP Java SDK 2.x
 - MCP client STDIO
@@ -60,6 +63,64 @@ mvn spring-boot:run
 ```
 
 Swagger: `http://localhost:8080/swagger-ui.html`
+
+## Tool Policy
+
+A política é deny-by-default. A configuração padrão permite ao Backend Developer apenas as tools locais necessárias e mantém o Refiner sem acesso a tools:
+
+```yaml
+aidev:
+  tool-policy:
+    default-effect: DENY
+    policies:
+      BACKEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+        deny: []
+      REVIEWER:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
+      REFINER:
+        allow: []
+        deny:
+          - '*'
+```
+
+`deny` sempre vence `allow`. Os padrões aceitam wildcard `*`.
+
+Para liberar somente um MCP de documentação para o Backend Agent, prefira uma regra explícita no `application-local.yml`:
+
+```yaml
+aidev:
+  tool-policy:
+    policies:
+      BACKEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+          - mcp_context7_*
+        deny:
+          - mcp_context7_*delete*
+          - mcp_context7_*write*
+```
+
+Evite liberar `mcp_*` globalmente quando o servidor possui tools mutáveis ou administrativas.
+
+Audite a política efetiva, incluindo MCPs registrados dinamicamente:
+
+```bash
+curl http://localhost:8080/api/tool-policies
+curl http://localhost:8080/api/tool-policies/BACKEND_DEVELOPER
+```
 
 ## MCP
 
@@ -106,8 +167,6 @@ aidev:
           API_TOKEN: ${EXAMPLE_MCP_TOKEN}
 ```
 
-O SDK STDIO herda apenas um conjunto restrito de variáveis de ambiente do SO e acrescenta as declaradas em `env`; não repasse chaves desnecessárias para MCPs de terceiros.
-
 ### Exemplo Streamable HTTP
 
 ```yaml
@@ -126,21 +185,12 @@ aidev:
           - dangerous_delete
 ```
 
-Após o bootstrap, o orchestrator executa `initialize` + `tools/list`. Uma tool remota como `search_docs` no servidor `docs` é exposta ao agente como:
-
-```text
-mcp_docs_search_docs
-```
-
-O JSON Schema informado pelo MCP é repassado para o function calling nativo de OpenAI/Gemini.
+Após o bootstrap, o orchestrator executa `initialize` + `tools/list`. Uma tool remota como `search_docs` no servidor `docs` é exposta como `mcp_docs_search_docs`, desde que o ToolPolicy do agente também autorize esse nome.
 
 ### Operação MCP
 
 ```bash
-# status dos servidores
 curl http://localhost:8080/api/mcp/servers
-
-# reconectar e refazer discovery de tools
 curl -X POST http://localhost:8080/api/mcp/servers/docs/reconnect
 ```
 
@@ -175,14 +225,15 @@ curl http://localhost:8080/api/work-items/{id}/tool-executions
 
 - `.env` e `application-local.yml` não devem ser versionados.
 - Shell local passa por `CommandPolicy` e workspace root.
+- ToolPolicy é deny-by-default e aplicado duas vezes: exposição + execução.
 - MCP fica desabilitado por padrão.
-- Tools MCP podem ser limitadas com `include-tools` e `exclude-tools`.
+- Tools MCP podem ser limitadas no servidor com `include-tools`/`exclude-tools` e no agente com `ToolPolicy`.
 - Use credenciais de menor privilégio possível em MCPs externos.
 - Publicação GitHub exige habilitação explícita e só ocorre em `READY_FOR_HUMAN_REVIEW`.
 
 ## Próximos milestones
 
-1. ToolPolicy por AgentType e classificação de risco para MCPs
+1. Classificação de risco/capabilities para tools e human approval em operações sensíveis
 2. Persistência de métricas de tokens/custo por AgentExecution
 3. Trello adapter
 4. Frontend Developer Agent
