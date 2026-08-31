@@ -5,6 +5,7 @@ import com.ordevia.aidev.agent.domain.AgentType;
 import com.ordevia.aidev.execution.domain.AgentExecution;
 import com.ordevia.aidev.execution.infrastructure.AgentExecutionJpaRepository;
 import com.ordevia.aidev.planning.domain.*;
+import com.ordevia.aidev.planning.infrastructure.PlanningFeedbackJpaRepository;
 import com.ordevia.aidev.planning.infrastructure.PlanningQuestionJpaRepository;
 import com.ordevia.aidev.planning.infrastructure.PlanningSessionJpaRepository;
 import com.ordevia.aidev.workitem.domain.WorkItem;
@@ -23,6 +24,7 @@ public class PlanningService {
     private final WorkItemJpaRepository workItems;
     private final PlanningSessionJpaRepository sessions;
     private final PlanningQuestionJpaRepository questions;
+    private final PlanningFeedbackJpaRepository feedback;
     private final AgentExecutionJpaRepository executions;
     private final ProductPlanningAgent agent;
     private final ObjectMapper mapper;
@@ -31,6 +33,7 @@ public class PlanningService {
     public PlanningService(WorkItemJpaRepository workItems,
                            PlanningSessionJpaRepository sessions,
                            PlanningQuestionJpaRepository questions,
+                           PlanningFeedbackJpaRepository feedback,
                            AgentExecutionJpaRepository executions,
                            ProductPlanningAgent agent,
                            ObjectMapper mapper,
@@ -38,6 +41,7 @@ public class PlanningService {
         this.workItems = workItems;
         this.sessions = sessions;
         this.questions = questions;
+        this.feedback = feedback;
         this.executions = executions;
         this.agent = agent;
         this.mapper = mapper;
@@ -65,6 +69,21 @@ public class PlanningService {
             throw new IllegalStateException("Planning is not waiting for user input");
         }
         ensureBlockingQuestionsAnswered(session);
+        return nextRoundOrRequireHuman(item, session);
+    }
+
+    @Transactional
+    public PlanningView requestChanges(UUID workItemId, String reviewFeedback, String providedBy) {
+        WorkItem item = requiredWorkItem(workItemId);
+        PlanningSession session = requiredSession(workItemId);
+        if (session.getStatus() != PlanningStatus.READY_FOR_REVIEW || item.getStatus() != WorkItemStatus.READY_FOR_PLANNING_REVIEW) {
+            throw new IllegalStateException("Planning is not ready for human review feedback");
+        }
+        feedback.save(new PlanningFeedback(UUID.randomUUID(), session.getId(), session.getRound(), reviewFeedback, providedBy));
+        return nextRoundOrRequireHuman(item, session);
+    }
+
+    private PlanningView nextRoundOrRequireHuman(WorkItem item, PlanningSession session) {
         if (!session.canStartAnotherRound()) {
             session.requireHuman("Maximum planning rounds reached; human planning is required.", session.getLastAnalysisJson());
             item.moveTo(WorkItemStatus.PLANNING_HUMAN_REQUIRED);
@@ -106,14 +125,18 @@ public class PlanningService {
     }
 
     @Transactional(readOnly = true)
-    public PlanningView get(UUID workItemId) {
-        return view(requiredSession(workItemId));
-    }
+    public PlanningView get(UUID workItemId) { return view(requiredSession(workItemId)); }
 
     @Transactional(readOnly = true)
     public List<PlanningQuestion> listQuestions(UUID workItemId) {
         PlanningSession session = requiredSession(workItemId);
         return questions.findBySessionIdOrderByRoundAscCreatedAtAsc(session.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PlanningFeedback> listFeedback(UUID workItemId) {
+        PlanningSession session = requiredSession(workItemId);
+        return feedback.findBySessionIdOrderByCreatedAtAsc(session.getId());
     }
 
     private PlanningView analyze(WorkItem item, PlanningSession session) {
@@ -166,14 +189,11 @@ public class PlanningService {
             if (draft.question() == null || draft.question().isBlank()) continue;
             try {
                 questions.save(new PlanningQuestion(
-                        UUID.randomUUID(),
-                        session.getId(),
-                        session.getRound(),
+                        UUID.randomUUID(), session.getId(), session.getRound(),
                         draft.category() == null ? PlanningQuestionCategory.OTHER : draft.category(),
                         draft.question().trim(),
                         draft.rationale() == null ? "Business clarification required." : draft.rationale().trim(),
-                        draft.blocking(),
-                        mapper.writeValueAsString(draft.options())));
+                        draft.blocking(), mapper.writeValueAsString(draft.options())));
             } catch (Exception e) {
                 throw new IllegalStateException("Unable to persist planning question", e);
             }
@@ -188,16 +208,16 @@ public class PlanningService {
                     .append("RATIONALE: ").append(q.getRationale()).append('\n')
                     .append("ANSWER: ").append(q.answered() ? q.getAnswer() : "<UNANSWERED>").append("\n\n");
         }
+        for (PlanningFeedback f : feedback.findBySessionIdOrderByCreatedAtAsc(session.getId())) {
+            out.append("ROUND ").append(f.getRound()).append(" HUMAN REVIEW FEEDBACK by ")
+                    .append(f.getProvidedBy()).append(":\n").append(f.getFeedback()).append("\n\n");
+        }
         return out.toString();
     }
 
     private void ensureBlockingQuestionsAnswered(PlanningSession session) {
         List<PlanningQuestion> current = questions.findBySessionIdAndRoundOrderByCreatedAtAsc(session.getId(), session.getRound());
-        List<UUID> unanswered = current.stream()
-                .filter(PlanningQuestion::isBlocking)
-                .filter(q -> !q.answered())
-                .map(PlanningQuestion::getId)
-                .toList();
+        List<UUID> unanswered = current.stream().filter(PlanningQuestion::isBlocking).filter(q -> !q.answered()).map(PlanningQuestion::getId).toList();
         if (!unanswered.isEmpty()) throw new IllegalStateException("Blocking planning questions still unanswered: " + unanswered);
     }
 
@@ -212,8 +232,11 @@ public class PlanningService {
     private PlanningView view(PlanningSession session) {
         List<PlanningQuestion> qs = questions.findBySessionIdOrderByRoundAscCreatedAtAsc(session.getId());
         long unansweredBlocking = qs.stream().filter(PlanningQuestion::isBlocking).filter(q -> !q.answered()).count();
-        return new PlanningView(session, qs, unansweredBlocking);
+        return new PlanningView(session, qs, feedback.findBySessionIdOrderByCreatedAtAsc(session.getId()), unansweredBlocking);
     }
 
-    public record PlanningView(PlanningSession session, List<PlanningQuestion> questions, long unansweredBlockingQuestions) {}
+    public record PlanningView(PlanningSession session,
+                               List<PlanningQuestion> questions,
+                               List<PlanningFeedback> feedback,
+                               long unansweredBlockingQuestions) {}
 }
