@@ -1,7 +1,6 @@
 package com.ordevia.aidev.workitem.domain;
 
 import jakarta.persistence.*;
-
 import java.time.Instant;
 import java.util.UUID;
 
@@ -17,6 +16,7 @@ public class WorkItem {
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 60) private WorkItemStatus status;
     @Column(name = "repository_path", nullable = false, columnDefinition = "text") private String repositoryPath;
     @Column(name = "branch_name") private String branchName;
+    @Column(name = "active_workspace_path", columnDefinition = "text") private String activeWorkspacePath;
     @Column(columnDefinition = "text") private String specification;
     @Column(name = "domain_validation_report", columnDefinition = "text") private String domainValidationReport;
     @Column(name = "architecture_plan", columnDefinition = "text") private String architecturePlan;
@@ -35,69 +35,25 @@ public class WorkItem {
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
 
     protected WorkItem() {}
+    public WorkItem(UUID id, String externalId, String title, String description, String repositoryPath){this(id,null,externalId,title,description,repositoryPath);}
+    public WorkItem(UUID id, UUID projectId, String externalId, String title, String description, String repositoryPath){this.id=id;this.projectId=projectId;this.externalId=externalId;this.title=title;this.description=description;this.repositoryPath=repositoryPath;this.status=WorkItemStatus.NEW;this.createdAt=Instant.now();this.updatedAt=this.createdAt;}
+    public void moveTo(WorkItemStatus status){this.status=status;touch();}
+    public void setSpecification(String value){specification=value;touch();} public void setDomainValidationReport(String value){domainValidationReport=value;touch();}
+    public void setArchitecturePlan(String value){architecturePlan=value;touch();} public void setDeliveryRoles(String value){deliveryRoles=value;touch();}
+    public void setImplementationReport(String value){implementationReport=value;touch();} public void setIntegrationReport(String value){integrationReport=value;touch();}
+    public void setQaReport(String value){qaReport=value;touch();} public void setReviewReport(String value){reviewReport=value;touch();}
+    public void setSecurityReport(String value){securityReport=value;touch();} public void setReleaseReport(String value){releaseReport=value;touch();}
+    public void setBranchName(String value){branchName=value;touch();} public void setActiveWorkspacePath(String value){activeWorkspacePath=value;touch();}
+    public void incrementReviewIterations(){reviewIterations++;touch();}
+    public void markPublished(int number,String url){pullRequestNumber=number;pullRequestUrl=url;publishedAt=Instant.now();touch();}
+    private void touch(){updatedAt=Instant.now();}
 
-    public WorkItem(UUID id, String externalId, String title, String description, String repositoryPath) {
-        this(id, null, externalId, title, description, repositoryPath);
-    }
-
-    public WorkItem(UUID id, UUID projectId, String externalId, String title, String description, String repositoryPath) {
-        this.id = id;
-        this.projectId = projectId;
-        this.externalId = externalId;
-        this.title = title;
-        this.description = description;
-        this.repositoryPath = repositoryPath;
-        this.status = WorkItemStatus.NEW;
-        this.createdAt = Instant.now();
-        this.updatedAt = this.createdAt;
-    }
-
-    public void moveTo(WorkItemStatus status) { this.status = status; touch(); }
-    public void setSpecification(String specification) { this.specification = specification; touch(); }
-    public void setDomainValidationReport(String report) { this.domainValidationReport = report; touch(); }
-    public void setArchitecturePlan(String architecturePlan) { this.architecturePlan = architecturePlan; touch(); }
-    public void setDeliveryRoles(String deliveryRoles) { this.deliveryRoles = deliveryRoles; touch(); }
-    public void setImplementationReport(String implementationReport) { this.implementationReport = implementationReport; touch(); }
-    public void setIntegrationReport(String integrationReport) { this.integrationReport = integrationReport; touch(); }
-    public void setQaReport(String qaReport) { this.qaReport = qaReport; touch(); }
-    public void setReviewReport(String reviewReport) { this.reviewReport = reviewReport; touch(); }
-    public void setSecurityReport(String securityReport) { this.securityReport = securityReport; touch(); }
-    public void setReleaseReport(String releaseReport) { this.releaseReport = releaseReport; touch(); }
-    public void setBranchName(String branchName) { this.branchName = branchName; touch(); }
-    public void incrementReviewIterations() { reviewIterations++; touch(); }
-
-    public void markPublished(int pullRequestNumber, String pullRequestUrl) {
-        this.pullRequestNumber = pullRequestNumber;
-        this.pullRequestUrl = pullRequestUrl;
-        this.publishedAt = Instant.now();
-        touch();
-    }
-
-    private void touch() { this.updatedAt = Instant.now(); }
-
-    public UUID getId() { return id; }
-    public UUID getProjectId() { return projectId; }
-    public long getVersion() { return version; }
-    public String getExternalId() { return externalId; }
-    public String getTitle() { return title; }
-    public String getDescription() { return description; }
-    public WorkItemStatus getStatus() { return status; }
-    public String getRepositoryPath() { return repositoryPath; }
-    public String getBranchName() { return branchName; }
-    public String getSpecification() { return specification; }
-    public String getDomainValidationReport() { return domainValidationReport; }
-    public String getArchitecturePlan() { return architecturePlan; }
-    public String getDeliveryRoles() { return deliveryRoles; }
-    public String getImplementationReport() { return implementationReport; }
-    public String getIntegrationReport() { return integrationReport; }
-    public String getQaReport() { return qaReport; }
-    public String getReviewReport() { return reviewReport; }
-    public String getSecurityReport() { return securityReport; }
-    public String getReleaseReport() { return releaseReport; }
-    public int getReviewIterations() { return reviewIterations; }
-    public Integer getPullRequestNumber() { return pullRequestNumber; }
-    public String getPullRequestUrl() { return pullRequestUrl; }
-    public Instant getPublishedAt() { return publishedAt; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
+    public UUID getId(){return id;} public UUID getProjectId(){return projectId;} public long getVersion(){return version;} public String getExternalId(){return externalId;}
+    public String getTitle(){return title;} public String getDescription(){return description;} public WorkItemStatus getStatus(){return status;}
+    public String getRepositoryPath(){return repositoryPath;} public String getBranchName(){return branchName;} public String getActiveWorkspacePath(){return activeWorkspacePath;}
+    public String getSpecification(){return specification;} public String getDomainValidationReport(){return domainValidationReport;} public String getArchitecturePlan(){return architecturePlan;}
+    public String getDeliveryRoles(){return deliveryRoles;} public String getImplementationReport(){return implementationReport;} public String getIntegrationReport(){return integrationReport;}
+    public String getQaReport(){return qaReport;} public String getReviewReport(){return reviewReport;} public String getSecurityReport(){return securityReport;} public String getReleaseReport(){return releaseReport;}
+    public int getReviewIterations(){return reviewIterations;} public Integer getPullRequestNumber(){return pullRequestNumber;} public String getPullRequestUrl(){return pullRequestUrl;}
+    public Instant getPublishedAt(){return publishedAt;} public Instant getCreatedAt(){return createdAt;} public Instant getUpdatedAt(){return updatedAt;}
 }
