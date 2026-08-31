@@ -39,6 +39,8 @@ aidev:
     review:
       max-steps: ${AIDEV_REVIEW_MAX_STEPS:10}
       max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
+    critic:
+      max-steps: ${AIDEV_CRITIC_MAX_STEPS:8}
     security:
       max-steps: ${AIDEV_SECURITY_MAX_STEPS:10}
     domain-guardian:
@@ -87,6 +89,13 @@ aidev:
         deny:
           - write_file
           - run_command
+      CRITIC:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
       SECURITY_REVIEWER:
         allow:
           - search_code
@@ -125,6 +134,12 @@ aidev:
     request-timeout: ${AIDEV_MCP_REQUEST_TIMEOUT:30s}
     servers: {}
   llm:
+    resilience:
+      enabled: ${AIDEV_LLM_FALLBACK_ENABLED:true}
+      failure-threshold: ${AIDEV_LLM_FAILURE_THRESHOLD:3}
+      open-duration: ${AIDEV_LLM_OPEN_DURATION:45s}
+      fallback-openai-model: ${AIDEV_FALLBACK_OPENAI_MODEL:gpt-5.6-sol}
+      fallback-gemini-model: ${AIDEV_FALLBACK_GEMINI_MODEL:gemini-3.7-flash}
     routes:
       refinement:
         provider: ${AIDEV_REFINEMENT_PROVIDER:GEMINI}
@@ -144,6 +159,9 @@ aidev:
       review:
         provider: ${AIDEV_REVIEW_PROVIDER:OPENAI}
         model: ${AIDEV_REVIEW_MODEL:gpt-5.6-sol}
+      critic:
+        provider: ${AIDEV_CRITIC_PROVIDER:GEMINI}
+        model: ${AIDEV_CRITIC_MODEL:gemini-3.7-flash}
       security:
         provider: ${AIDEV_SECURITY_PROVIDER:OPENAI}
         model: ${AIDEV_SECURITY_MODEL:gpt-5.6-sol}
