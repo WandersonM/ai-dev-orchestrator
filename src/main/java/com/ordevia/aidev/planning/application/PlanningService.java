@@ -99,7 +99,7 @@ public class PlanningService {
         }
         session.approve();
         item.setSpecification(session.getFinalSpecification());
-        item.moveTo(WorkItemStatus.READY_FOR_ARCHITECTURE);
+        item.moveTo(WorkItemStatus.READY_FOR_DOMAIN_VALIDATION);
         sessions.save(session);
         workItems.save(item);
         return view(session);
