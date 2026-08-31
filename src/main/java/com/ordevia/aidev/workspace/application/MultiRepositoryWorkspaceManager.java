@@ -17,15 +17,18 @@ public class MultiRepositoryWorkspaceManager {
     private final WorkItemRepositoryBindingJpaRepository bindings;
     private final ProjectRepositoryJpaRepository repositories;
     private final GitWorktreeManager worktrees;
+    private final RepositoryInstructionsLoader instructionsLoader;
     private final Path workspaceRoot;
 
     public MultiRepositoryWorkspaceManager(WorkItemRepositoryBindingJpaRepository bindings,
                                            ProjectRepositoryJpaRepository repositories,
                                            GitWorktreeManager worktrees,
+                                           RepositoryInstructionsLoader instructionsLoader,
                                            @Value("${aidev.workspace-root}") String workspaceRoot) {
         this.bindings = bindings;
         this.repositories = repositories;
         this.worktrees = worktrees;
+        this.instructionsLoader = instructionsLoader;
         this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
     }
 
@@ -34,11 +37,13 @@ public class MultiRepositoryWorkspaceManager {
         if (itemBindings.isEmpty()) {
             Path source = sourcePath(item.getRepositoryPath());
             GitWorktreeManager.Worktree worktree = worktrees.create(source, item.getExternalId());
-            return new TaskWorkspace(worktree.path(), List.of(worktree), manifest(List.of(worktree), List.of()));
+            String instructions = instructionsLoader.load(worktree.path(), null);
+            return new TaskWorkspace(worktree.path(), List.of(worktree), manifest(List.of(worktree), List.of(), List.of(instructions)));
         }
 
         List<GitWorktreeManager.Worktree> prepared = new ArrayList<>();
         List<ProjectRepository> profiles = new ArrayList<>();
+        List<String> instructions = new ArrayList<>();
         for (WorkItemRepositoryBinding binding : itemBindings) {
             ProjectRepository profile = repositories.findById(binding.getProjectRepositoryId())
                     .orElseThrow(() -> new IllegalStateException("Project repository binding points to missing profile"));
@@ -49,8 +54,9 @@ public class MultiRepositoryWorkspaceManager {
                     sourcePath(profile.getRepositoryPath()), item.getExternalId(), profile.getAlias(), baseBranch, profile.getBranchPrefix());
             prepared.add(worktree);
             profiles.add(profile);
+            instructions.add(instructionsLoader.load(worktree.path(), profile.getInstructionsPath()));
         }
-        return new TaskWorkspace(worktrees.taskRoot(item.getExternalId()), List.copyOf(prepared), manifest(prepared, profiles));
+        return new TaskWorkspace(worktrees.taskRoot(item.getExternalId()), List.copyOf(prepared), manifest(prepared, profiles, instructions));
     }
 
     private Path sourcePath(String repositoryPath) {
@@ -59,26 +65,29 @@ public class MultiRepositoryWorkspaceManager {
         return path;
     }
 
-    private String manifest(List<GitWorktreeManager.Worktree> worktrees, List<ProjectRepository> profiles) {
+    private String manifest(List<GitWorktreeManager.Worktree> worktrees, List<ProjectRepository> profiles, List<String> instructions) {
         StringBuilder out = new StringBuilder();
         out.append("MULTI-ROOT WORKSPACE\n");
         for (int i = 0; i < worktrees.size(); i++) {
             GitWorktreeManager.Worktree wt = worktrees.get(i);
             ProjectRepository profile = profiles.isEmpty() ? null : profiles.get(i);
-            out.append("- root: ").append(wt.repositoryAlias()).append("/")
-                    .append(" | branch: ").append(wt.branch())
-                    .append(" | base: ").append(wt.baseBranch());
+            out.append("\n## Repository root: ").append(wt.repositoryAlias()).append("/\n")
+                    .append("branch: ").append(wt.branch()).append("\n")
+                    .append("base: ").append(wt.baseBranch()).append("\n");
             if (profile != null) {
-                out.append(" | kind: ").append(profile.getKind());
-                if (profile.getJavaVersion() != null) out.append(" | java: ").append(profile.getJavaVersion());
-                if (profile.getNodeVersion() != null) out.append(" | node: ").append(profile.getNodeVersion());
-                if (profile.getBuildCommand() != null) out.append(" | build: ").append(profile.getBuildCommand());
-                if (profile.getTestCommand() != null) out.append(" | test: ").append(profile.getTestCommand());
-                if (profile.getInstructionsPath() != null) out.append(" | instructions: ").append(profile.getInstructionsPath());
+                out.append("kind: ").append(profile.getKind()).append('\n');
+                if (profile.getJavaVersion() != null) out.append("java: ").append(profile.getJavaVersion()).append('\n');
+                if (profile.getNodeVersion() != null) out.append("node: ").append(profile.getNodeVersion()).append('\n');
+                if (profile.getBuildCommand() != null) out.append("build: ").append(profile.getBuildCommand()).append('\n');
+                if (profile.getTestCommand() != null) out.append("test: ").append(profile.getTestCommand()).append('\n');
+                if (profile.getInstructionsPath() != null) out.append("instructionsPath: ").append(profile.getInstructionsPath()).append('\n');
             }
-            out.append('\n');
+            String repositoryInstructions = instructions.size() > i ? instructions.get(i) : "";
+            if (repositoryInstructions != null && !repositoryInstructions.isBlank()) {
+                out.append("\n### Versioned repository instructions\n").append(repositoryInstructions).append('\n');
+            }
         }
-        out.append("All file paths passed to tools are relative to this task workspace root. For example: backend/src/... or legacy/pom.xml.\n");
+        out.append("\nAll file paths passed to tools are relative to this task workspace root. For example: backend/src/... or legacy/pom.xml.\n");
         return out.toString();
     }
 
