@@ -5,6 +5,8 @@ public enum AgentCheckpointType {
     BEFORE_LLM,
     AFTER_LLM,
     AFTER_TOOL,
+    APPROVAL_REQUESTED,
+    APPROVAL_APPROVED,
     HUMAN_MESSAGE_APPLIED,
     PAUSED,
     RESUMED,
