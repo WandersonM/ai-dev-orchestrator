@@ -54,6 +54,7 @@ public class WorkflowEngine {
                 planning.start(id);
                 yield workItems.findById(id).orElseThrow();
             }
+            case READY_FOR_ARCHITECTURE -> architect(item);
             case READY_FOR_DEVELOPMENT, CHANGES_REQUESTED -> implement(item);
             case REVIEWING -> review(item);
             default -> throw new IllegalStateException("No executable transition for status " + item.getStatus());
@@ -84,12 +85,30 @@ public class WorkflowEngine {
         if (!pending.isEmpty()) throw new IllegalStateException("WorkItem is blocked by: " + String.join(", ", pending));
     }
 
+    private WorkItem architect(WorkItem item) {
+        item.moveTo(WorkItemStatus.ARCHITECTING);
+        workItems.save(item);
+        AgentResult result = executeAgent(item, AgentType.ARCHITECT, repository(item), Map.of());
+        if (!result.success()) {
+            item.moveTo(WorkItemStatus.FAILED);
+        } else {
+            item.setArchitecturePlan(result.output());
+            if (result.output().contains("DECISION: HUMAN_REQUIRED")) {
+                item.moveTo(WorkItemStatus.ARCHITECTURE_HUMAN_REQUIRED);
+            } else {
+                item.moveTo(WorkItemStatus.READY_FOR_DEVELOPMENT);
+            }
+        }
+        return workItems.save(item);
+    }
+
     private WorkItem implement(WorkItem item) {
         item.moveTo(WorkItemStatus.IMPLEMENTING);
         Path sourceRepo = repository(item);
         GitWorktreeManager.Worktree worktree = worktrees.create(sourceRepo, item.getExternalId());
         item.setBranchName(worktree.branch());
         AgentResult result = executeAgent(item, AgentType.BACKEND_DEVELOPER, worktree.path(), Map.of(
+                "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "reviewReport", Objects.toString(item.getReviewReport(), "")
         ));
         if (result.success()) {
@@ -106,6 +125,7 @@ public class WorkflowEngine {
         GitWorktreeManager.Worktree worktree = worktrees.create(sourceRepo, item.getExternalId());
         String diff = worktrees.diff(worktree.path());
         AgentResult result = executeAgent(item, AgentType.REVIEWER, worktree.path(), Map.of(
+                "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
                 "gitDiff", diff
         ));
