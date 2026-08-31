@@ -1,6 +1,7 @@
 package com.ordevia.aidev.agent.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ordevia.aidev.agent.codex.CodexCliAgentRunner;
 import com.ordevia.aidev.agent.domain.*;
 import com.ordevia.aidev.agent.policy.AgentToolAccessService;
 import com.ordevia.aidev.agent.skill.SkillRegistry;
@@ -31,16 +32,18 @@ public class ToolLoopRunner {
     private final ToolExecutionJpaRepository toolExecutions; private final AgentSessionService sessions; private final WorkspaceSnapshotService snapshots;
     private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals;
     private final LlmTelemetryService telemetry; private final WorkItemBudgetService budgets; private final SecretRedactor redactor;
+    private final CodexCliAgentRunner codex;
 
     public ToolLoopRunner(LlmGateway llm,AgentToolAccessService toolAccess,ObjectMapper mapper,ToolExecutionJpaRepository toolExecutions,
                           AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills,
                           ToolRiskAssessmentService risks,ApprovalService approvals,LlmTelemetryService telemetry,WorkItemBudgetService budgets,
-                          SecretRedactor redactor){
+                          SecretRedactor redactor,CodexCliAgentRunner codex){
         this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;
-        this.skills=skills;this.risks=risks;this.approvals=approvals;this.telemetry=telemetry;this.budgets=budgets;this.redactor=redactor;
+        this.skills=skills;this.risks=risks;this.approvals=approvals;this.telemetry=telemetry;this.budgets=budgets;this.redactor=redactor;this.codex=codex;
     }
 
     public AgentResult run(AgentType agentType,LlmTask task,AgentContext original,int maxSteps,String systemPrompt,String userPrompt){
+        if(codex.supports(agentType))return codex.run(agentType,original,systemPrompt,userPrompt);
         var session=sessions.openOrResume(original.workItemId(),agentType);
         AgentContext context=effectiveContext(original,session);
         int step=session.getCurrentStep();
