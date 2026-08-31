@@ -26,6 +26,27 @@ aidev:
       max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
     review:
       max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
+  tool-policy:
+    default-effect: DENY
+    policies:
+      BACKEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+        deny: []
+      REVIEWER:
+        allow:
+          - search_code
+          - read_file
+        deny:
+          - write_file
+          - run_command
+      REFINER:
+        allow: []
+        deny:
+          - '*'
   github:
     publish-enabled: ${AIDEV_GITHUB_PUBLISH_ENABLED:false}
     token: ${AIDEV_GITHUB_TOKEN:}
