@@ -26,6 +26,11 @@ aidev:
       max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
     review:
       max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
+  github:
+    publish-enabled: ${AIDEV_GITHUB_PUBLISH_ENABLED:false}
+    token: ${AIDEV_GITHUB_TOKEN:}
+    api-base-url: ${AIDEV_GITHUB_API_BASE_URL:https://api.github.com}
+    base-branch: ${AIDEV_GITHUB_BASE_BRANCH:main}
   llm:
     routes:
       refinement:
