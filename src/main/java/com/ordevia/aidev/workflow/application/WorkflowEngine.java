@@ -3,6 +3,7 @@ package com.ordevia.aidev.workflow.application;
 import com.ordevia.aidev.agent.domain.*;
 import com.ordevia.aidev.execution.domain.AgentExecution;
 import com.ordevia.aidev.execution.infrastructure.AgentExecutionJpaRepository;
+import com.ordevia.aidev.planning.application.PlanningService;
 import com.ordevia.aidev.workitem.domain.*;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemDependencyJpaRepository;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemJpaRepository;
@@ -22,6 +23,7 @@ public class WorkflowEngine {
     private final Map<AgentType, Agent> agents;
     private final Path workspaceRoot;
     private final GitWorktreeManager worktrees;
+    private final PlanningService planning;
     private final int maxReviewIterations;
 
     public WorkflowEngine(WorkItemJpaRepository workItems,
@@ -29,6 +31,7 @@ public class WorkflowEngine {
                           AgentExecutionJpaRepository executions,
                           List<Agent> agentList,
                           GitWorktreeManager worktrees,
+                          PlanningService planning,
                           @Value("${aidev.workspace-root}") String workspaceRoot,
                           @Value("${aidev.agents.review.max-iterations:3}") int maxReviewIterations) {
         this.workItems = workItems;
@@ -38,6 +41,7 @@ public class WorkflowEngine {
         agentList.forEach(a -> agents.put(a.type(), a));
         this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
         this.worktrees = worktrees;
+        this.planning = planning;
         this.maxReviewIterations = maxReviewIterations;
     }
 
@@ -46,7 +50,10 @@ public class WorkflowEngine {
         WorkItem item = workItems.findById(id).orElseThrow(() -> new NoSuchElementException("WorkItem not found"));
         ensureDependenciesSatisfied(item);
         return switch (item.getStatus()) {
-            case NEW -> refine(item);
+            case NEW -> {
+                planning.start(id);
+                yield workItems.findById(id).orElseThrow();
+            }
             case READY_FOR_DEVELOPMENT, CHANGES_REQUESTED -> implement(item);
             case REVIEWING -> review(item);
             default -> throw new IllegalStateException("No executable transition for status " + item.getStatus());
@@ -75,18 +82,6 @@ public class WorkflowEngine {
             }
         }
         if (!pending.isEmpty()) throw new IllegalStateException("WorkItem is blocked by: " + String.join(", ", pending));
-    }
-
-    private WorkItem refine(WorkItem item) {
-        item.moveTo(WorkItemStatus.REFINING);
-        AgentResult result = executeAgent(item, AgentType.REFINER, repository(item), Map.of());
-        if (result.success()) {
-            item.setSpecification(result.output());
-            item.moveTo(WorkItemStatus.READY_FOR_DEVELOPMENT);
-        } else {
-            item.moveTo(WorkItemStatus.FAILED);
-        }
-        return workItems.save(item);
     }
 
     private WorkItem implement(WorkItem item) {
