@@ -1,6 +1,7 @@
 package com.ordevia.aidev.api;
 
 import com.ordevia.aidev.planning.application.PlanningService;
+import com.ordevia.aidev.planning.domain.PlanningFeedback;
 import com.ordevia.aidev.planning.domain.PlanningQuestion;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -33,6 +34,11 @@ public class PlanningController {
         return planning.listQuestions(workItemId);
     }
 
+    @GetMapping("/feedback")
+    public List<PlanningFeedback> feedback(@PathVariable UUID workItemId) {
+        return planning.listFeedback(workItemId);
+    }
+
     @PostMapping("/questions/{questionId}/answer")
     public PlanningQuestion answer(@PathVariable UUID workItemId,
                                    @PathVariable UUID questionId,
@@ -45,10 +51,17 @@ public class PlanningController {
         return planning.continuePlanning(workItemId);
     }
 
+    @PostMapping("/request-changes")
+    public PlanningService.PlanningView requestChanges(@PathVariable UUID workItemId,
+                                                       @Valid @RequestBody RequestChangesRequest request) {
+        return planning.requestChanges(workItemId, request.feedback(), request.providedBy());
+    }
+
     @PostMapping("/approve")
     public PlanningService.PlanningView approve(@PathVariable UUID workItemId) {
         return planning.approve(workItemId);
     }
 
     public record AnswerRequest(@NotBlank String answer, String answeredBy) {}
+    public record RequestChangesRequest(@NotBlank String feedback, String providedBy) {}
 }
