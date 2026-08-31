@@ -32,16 +32,21 @@ public class RoutingLlmGateway implements LlmGateway {
     private LlmRoutingProperties.Route route(LlmTask task) {
         return switch (task) {
             case REFINEMENT -> properties.routes().refinement();
+            case ARCHITECTURE -> properties.routes().architecture();
             case BACKEND_IMPLEMENTATION -> properties.routes().backend();
+            case FRONTEND_IMPLEMENTATION -> properties.routes().frontend();
+            case QA -> properties.routes().qa();
             case REVIEW -> properties.routes().review();
+            case SECURITY_REVIEW -> properties.routes().security();
+            case INTEGRATION -> properties.routes().integration();
+            case RELEASE -> properties.routes().release();
+            case DOMAIN_VALIDATION -> properties.routes().domainValidation();
         };
     }
 
     private ProviderLlmGateway requiredProvider(LlmProvider provider) {
         ProviderLlmGateway gateway = providers.get(provider);
-        if (gateway == null) {
-            throw new IllegalStateException("LLM provider not configured: " + provider);
-        }
+        if (gateway == null) throw new IllegalStateException("LLM provider not configured: " + provider);
         return gateway;
     }
 }
