@@ -12,10 +12,14 @@ import java.util.List;
 public class GitWorktreeManager {
     private final LocalCommandExecutor executor;
     private final Path workspaceRoot;
+    private final String baseBranch;
 
-    public GitWorktreeManager(LocalCommandExecutor executor, @Value("${aidev.workspace-root}") String workspaceRoot) {
+    public GitWorktreeManager(LocalCommandExecutor executor,
+                              @Value("${aidev.workspace-root}") String workspaceRoot,
+                              @Value("${aidev.github.base-branch:main}") String baseBranch) {
         this.executor = executor;
         this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
+        this.baseBranch = baseBranch;
     }
 
     public Worktree create(Path repository, String externalId) {
@@ -28,10 +32,11 @@ public class GitWorktreeManager {
             throw new IllegalStateException(e);
         }
         if (!Files.exists(target)) {
+            refreshRemoteBase(repository);
             var result = executor.execute(
                     workspaceRoot,
                     repository,
-                    List.of("git", "worktree", "add", target.toString(), "-b", branch),
+                    List.of("git", "worktree", "add", target.toString(), "-b", branch, "origin/" + baseBranch),
                     Duration.ofMinutes(2));
             if (result.exitCode() != 0) {
                 throw new IllegalStateException("Unable to create worktree: " + result.output());
@@ -42,39 +47,35 @@ public class GitWorktreeManager {
 
     public Worktree existing(String externalId) {
         Path target = worktreePath(externalId);
-        if (!Files.isDirectory(target)) {
-            throw new IllegalStateException("Worktree does not exist: " + target);
-        }
+        if (!Files.isDirectory(target)) throw new IllegalStateException("Worktree does not exist: " + target);
         return new Worktree(target, branchName(externalId));
     }
 
     public String diff(Path worktree) {
+        var result = executor.execute(workspaceRoot, worktree, List.of("git", "diff", "--", "."), Duration.ofMinutes(1));
+        if (result.exitCode() != 0) throw new IllegalStateException("Unable to read git diff: " + result.output());
+        return result.output();
+    }
+
+    private void refreshRemoteBase(Path repository) {
         var result = executor.execute(
                 workspaceRoot,
-                worktree,
-                List.of("git", "diff", "--", "."),
-                Duration.ofMinutes(1));
+                repository,
+                List.of("git", "fetch", "origin", baseBranch),
+                Duration.ofMinutes(2));
         if (result.exitCode() != 0) {
-            throw new IllegalStateException("Unable to read git diff: " + result.output());
+            throw new IllegalStateException("Unable to refresh origin/" + baseBranch + ": " + result.output());
         }
-        return result.output();
     }
 
     private Path worktreePath(String externalId) {
         Path target = workspaceRoot.resolve("worktrees").resolve(safeId(externalId)).normalize();
-        if (!target.startsWith(workspaceRoot)) {
-            throw new SecurityException("Invalid worktree path");
-        }
+        if (!target.startsWith(workspaceRoot)) throw new SecurityException("Invalid worktree path");
         return target;
     }
 
-    private String branchName(String externalId) {
-        return "ai/" + safeId(externalId);
-    }
-
-    private String safeId(String externalId) {
-        return externalId.replaceAll("[^A-Za-z0-9._-]", "-");
-    }
+    private String branchName(String externalId) { return "ai/" + safeId(externalId); }
+    private String safeId(String externalId) { return externalId.replaceAll("[^A-Za-z0-9._-]", "-"); }
 
     public record Worktree(Path path, String branch) {}
 }
