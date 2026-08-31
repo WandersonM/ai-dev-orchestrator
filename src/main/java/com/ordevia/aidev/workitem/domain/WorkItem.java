@@ -9,6 +9,8 @@ import java.util.UUID;
 @Table(name = "work_item")
 public class WorkItem {
     @Id private UUID id;
+    @Column(name = "project_id") private UUID projectId;
+    @Version @Column(nullable = false) private long version;
     @Column(name = "external_id") private String externalId;
     @Column(nullable = false, length = 300) private String title;
     @Column(columnDefinition = "text") private String description;
@@ -28,7 +30,12 @@ public class WorkItem {
     protected WorkItem() {}
 
     public WorkItem(UUID id, String externalId, String title, String description, String repositoryPath) {
+        this(id, null, externalId, title, description, repositoryPath);
+    }
+
+    public WorkItem(UUID id, UUID projectId, String externalId, String title, String description, String repositoryPath) {
         this.id = id;
+        this.projectId = projectId;
         this.externalId = externalId;
         this.title = title;
         this.description = description;
@@ -55,6 +62,8 @@ public class WorkItem {
     private void touch() { this.updatedAt = Instant.now(); }
 
     public UUID getId() { return id; }
+    public UUID getProjectId() { return projectId; }
+    public long getVersion() { return version; }
     public String getExternalId() { return externalId; }
     public String getTitle() { return title; }
     public String getDescription() { return description; }
