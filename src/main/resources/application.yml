@@ -62,81 +62,48 @@ aidev:
         deny:
           - '*'
       ARCHITECT:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
       BACKEND_DEVELOPER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
+        allow: [search_code, read_file, write_file, run_command, project_knowledge]
         deny: []
       FRONTEND_DEVELOPER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
+        allow: [search_code, read_file, write_file, run_command, project_knowledge]
         deny: []
       QA_ENGINEER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
+        allow: [search_code, read_file, write_file, run_command, project_knowledge]
         deny: []
       REVIEWER:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
       CRITIC:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
       SECURITY_REVIEWER:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
       INTEGRATION_ENGINEER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
+        allow: [search_code, read_file, write_file, run_command, project_knowledge]
         deny: []
       RELEASE_ENGINEER:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
       DOMAIN_GUARDIAN:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
+        allow: [search_code, read_file, project_knowledge]
+        deny: [write_file, run_command]
   github:
     publish-enabled: ${AIDEV_GITHUB_PUBLISH_ENABLED:false}
     token: ${AIDEV_GITHUB_TOKEN:}
     webhook-secret: ${AIDEV_GITHUB_WEBHOOK_SECRET:}
     api-base-url: ${AIDEV_GITHUB_API_BASE_URL:https://api.github.com}
     base-branch: ${AIDEV_GITHUB_BASE_BRANCH:main}
+  trello:
+    enabled: ${AIDEV_TRELLO_ENABLED:false}
+    api-key: ${AIDEV_TRELLO_API_KEY:}
+    token: ${AIDEV_TRELLO_TOKEN:}
+    base-url: ${AIDEV_TRELLO_BASE_URL:https://api.trello.com}
+    polling-enabled: ${AIDEV_TRELLO_POLLING_ENABLED:true}
+    polling-interval-ms: ${AIDEV_TRELLO_POLLING_INTERVAL_MS:30000}
   mcp:
     enabled: ${AIDEV_MCP_ENABLED:false}
     request-timeout: ${AIDEV_MCP_REQUEST_TIMEOUT:30s}
