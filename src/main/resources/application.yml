@@ -23,6 +23,13 @@ aidev:
   workspace-root: ${AIDEV_WORKSPACE_ROOT:./workspace}
   orchestration:
     max-parallel: ${AIDEV_MAX_PARALLEL:3}
+  execution:
+    self-hosted-worker:
+      client-enabled: ${AIDEV_WORKER_CLIENT_ENABLED:false}
+      server-enabled: ${AIDEV_WORKER_SERVER_ENABLED:false}
+      base-url: ${AIDEV_WORKER_BASE_URL:http://localhost:8090}
+      token: ${AIDEV_WORKER_TOKEN:}
+      workspace-root: ${AIDEV_WORKER_WORKSPACE_ROOT:${AIDEV_WORKSPACE_ROOT:./workspace}}
   agents:
     planning:
       max-rounds: ${AIDEV_PLANNING_MAX_ROUNDS:3}
@@ -127,6 +134,7 @@ aidev:
   github:
     publish-enabled: ${AIDEV_GITHUB_PUBLISH_ENABLED:false}
     token: ${AIDEV_GITHUB_TOKEN:}
+    webhook-secret: ${AIDEV_GITHUB_WEBHOOK_SECRET:}
     api-base-url: ${AIDEV_GITHUB_API_BASE_URL:https://api.github.com}
     base-branch: ${AIDEV_GITHUB_BASE_BRANCH:main}
   mcp:
