@@ -13,6 +13,7 @@ import com.ordevia.aidev.llm.domain.*;
 import com.ordevia.aidev.session.application.AgentSessionService;
 import com.ordevia.aidev.session.application.WorkspaceSnapshotService;
 import com.ordevia.aidev.session.domain.*;
+import com.ordevia.aidev.telemetry.application.LlmTelemetryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -26,13 +27,13 @@ public class ToolLoopRunner {
     private static final Logger log=LoggerFactory.getLogger(ToolLoopRunner.class);
     private final LlmGateway llm; private final AgentToolAccessService toolAccess; private final ObjectMapper mapper;
     private final ToolExecutionJpaRepository toolExecutions; private final AgentSessionService sessions; private final WorkspaceSnapshotService snapshots;
-    private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals;
+    private final SkillRegistry skills; private final ToolRiskAssessmentService risks; private final ApprovalService approvals; private final LlmTelemetryService telemetry;
 
     public ToolLoopRunner(LlmGateway llm,AgentToolAccessService toolAccess,ObjectMapper mapper,ToolExecutionJpaRepository toolExecutions,
                           AgentSessionService sessions,WorkspaceSnapshotService snapshots,SkillRegistry skills,
-                          ToolRiskAssessmentService risks,ApprovalService approvals){
+                          ToolRiskAssessmentService risks,ApprovalService approvals,LlmTelemetryService telemetry){
         this.llm=llm;this.toolAccess=toolAccess;this.mapper=mapper;this.toolExecutions=toolExecutions;this.sessions=sessions;this.snapshots=snapshots;
-        this.skills=skills;this.risks=risks;this.approvals=approvals;
+        this.skills=skills;this.risks=risks;this.approvals=approvals;this.telemetry=telemetry;
     }
 
     public AgentResult run(AgentType agentType,LlmTask task,AgentContext original,int maxSteps,String systemPrompt,String userPrompt){
@@ -63,6 +64,7 @@ public class ToolLoopRunner {
                 }
 
                 LlmToolResponse response=llm.executeTools(request);
+                telemetry.record(context.workItemId(),session.getId(),agentType,task,response);
                 sessions.controlPoint(session.getId(),step,AgentCheckpointType.AFTER_LLM,trim(response.text(),4000),response.turnId());
                 if(!response.hasToolCalls()){
                     if(StringUtils.hasText(response.text())){sessions.complete(session.getId(),step,trim(response.text(),8000));return AgentResult.success(response.text());}
