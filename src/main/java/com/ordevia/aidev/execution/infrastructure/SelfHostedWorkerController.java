@@ -1,5 +1,6 @@
 package com.ordevia.aidev.execution.infrastructure;
 
+import com.ordevia.aidev.workspace.infrastructure.LocalCommandExecutor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
