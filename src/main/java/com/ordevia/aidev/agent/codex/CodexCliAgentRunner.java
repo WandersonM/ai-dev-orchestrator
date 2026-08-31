@@ -66,7 +66,7 @@ public class CodexCliAgentRunner {
             WorkspaceRoots roots = resolveRoots(context.repository());
             lastMessage = Files.createTempFile("aidev-codex-last-", ".md");
             String prompt = buildPrompt(role, context, systemPrompt, userPrompt);
-            List<String> command = command(roots, lastMessage);
+            List<String> command = command(role, roots, lastMessage);
 
             var before = sessions.controlPoint(session.getId(), step, AgentCheckpointType.BEFORE_LLM,
                     "Delegating turn to Codex CLI", null);
@@ -79,7 +79,8 @@ public class CodexCliAgentRunner {
                             "sandbox", sandboxFor(role),
                             "ephemeral", properties.isEphemeral(),
                             "root", roots.primary().toString(),
-                            "additionalRoots", roots.additional().size()));
+                            "additionalRoots", roots.additional().size(),
+                            "billingMode", "CHATGPT_SUBSCRIPTION"));
 
             Instant started = Instant.now();
             ProcessBuilder builder = new ProcessBuilder(command)
@@ -120,6 +121,7 @@ public class CodexCliAgentRunner {
                 Map<String, Object> summary = summarizeJsonl(captured);
                 summary.put("exitCode", exit);
                 summary.put("durationMs", durationMs);
+                summary.put("sandbox", sandboxFor(role));
                 audit.append(context.workItemId(), session.getId(), exit == 0 ? "CODEX_CLI_COMPLETED" : "CODEX_CLI_FAILED",
                         "AGENT", role.name(), "AgentSession", session.getId().toString(), summary);
 
@@ -160,13 +162,13 @@ public class CodexCliAgentRunner {
         }
     }
 
-    private List<String> command(WorkspaceRoots roots, Path lastMessage) {
+    private List<String> command(AgentType role, WorkspaceRoots roots, Path lastMessage) {
         List<String> args = new ArrayList<>();
         args.add(properties.getBinary());
         args.add("exec");
         args.add("--json");
         args.add("--color"); args.add("never");
-        args.add("--sandbox"); args.add(sandboxForCurrent(roots));
+        args.add("--sandbox"); args.add(sandboxFor(role));
         args.add("-c"); args.add("approval_policy=\"never\"");
         args.add("--output-last-message"); args.add(lastMessage.toString());
         args.add("-C"); args.add(roots.primary().toString());
@@ -176,12 +178,6 @@ public class CodexCliAgentRunner {
         if (StringUtils.hasText(properties.getModel())) { args.add("--model"); args.add(properties.getModel()); }
         args.add("-");
         return args;
-    }
-
-    private String sandboxForCurrent(WorkspaceRoots roots) {
-        // command() has no role parameter by design; workspace-write is the upper bound. The role prompt
-        // still asks read-only roles not to edit, while the role-aware method below is used in audit.
-        return "workspace-write";
     }
 
     private String sandboxFor(AgentType role) {
@@ -218,7 +214,7 @@ public class CodexCliAgentRunner {
                 %s — %s
                 """.formatted(role.name(), writable ? "WRITE-CAPABLE" : "READ-ONLY",
                 writable ? "You may edit files and run repository-local verification commands." : "Do not edit files; inspect and report only.",
-                systemPrompt, userPrompt, Objects.toString(context.externalId(), context.workItemId().toString()), context.title());
+                systemPrompt, userPrompt, context.workItemId(), context.title());
     }
 
     private WorkspaceRoots resolveRoots(Path taskRoot) throws Exception {
@@ -234,8 +230,6 @@ public class CodexCliAgentRunner {
 
     private void sanitizeEnvironment(Map<String, String> env) {
         if (!properties.isStripApiKeyEnvironment()) return;
-        // ChatGPT-login Codex and API-key auth are intentionally kept separate. Removing these variables
-        // avoids an API key accidentally taking precedence over the user's stored ChatGPT/Codex login.
         env.remove("OPENAI_API_KEY");
         env.remove("CODEX_API_KEY");
     }
