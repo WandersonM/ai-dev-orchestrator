@@ -4,17 +4,20 @@ import com.ordevia.aidev.agent.domain.*;
 import com.ordevia.aidev.execution.domain.AgentExecution;
 import com.ordevia.aidev.execution.infrastructure.AgentExecutionJpaRepository;
 import com.ordevia.aidev.workitem.domain.*;
+import com.ordevia.aidev.workitem.infrastructure.WorkItemDependencyJpaRepository;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemJpaRepository;
 import com.ordevia.aidev.workspace.application.GitWorktreeManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.nio.file.Path;
 import java.util.*;
 
 @Service
 public class WorkflowEngine {
     private final WorkItemJpaRepository workItems;
+    private final WorkItemDependencyJpaRepository dependencies;
     private final AgentExecutionJpaRepository executions;
     private final Map<AgentType, Agent> agents;
     private final Path workspaceRoot;
@@ -22,12 +25,14 @@ public class WorkflowEngine {
     private final int maxReviewIterations;
 
     public WorkflowEngine(WorkItemJpaRepository workItems,
+                          WorkItemDependencyJpaRepository dependencies,
                           AgentExecutionJpaRepository executions,
                           List<Agent> agentList,
                           GitWorktreeManager worktrees,
                           @Value("${aidev.workspace-root}") String workspaceRoot,
                           @Value("${aidev.agents.review.max-iterations:3}") int maxReviewIterations) {
         this.workItems = workItems;
+        this.dependencies = dependencies;
         this.executions = executions;
         this.agents = new EnumMap<>(AgentType.class);
         agentList.forEach(a -> agents.put(a.type(), a));
@@ -39,12 +44,37 @@ public class WorkflowEngine {
     @Transactional
     public WorkItem process(UUID id) {
         WorkItem item = workItems.findById(id).orElseThrow(() -> new NoSuchElementException("WorkItem not found"));
+        ensureDependenciesSatisfied(item);
         return switch (item.getStatus()) {
             case NEW -> refine(item);
             case READY_FOR_DEVELOPMENT, CHANGES_REQUESTED -> implement(item);
             case REVIEWING -> review(item);
             default -> throw new IllegalStateException("No executable transition for status " + item.getStatus());
         };
+    }
+
+    @Transactional
+    public WorkItem markDone(UUID id) {
+        WorkItem item = workItems.findById(id).orElseThrow(() -> new NoSuchElementException("WorkItem not found"));
+        if (item.getStatus() != WorkItemStatus.READY_FOR_HUMAN_REVIEW) {
+            throw new IllegalStateException("Only READY_FOR_HUMAN_REVIEW WorkItems can be marked DONE");
+        }
+        item.moveTo(WorkItemStatus.DONE);
+        return workItems.save(item);
+    }
+
+    private void ensureDependenciesSatisfied(WorkItem item) {
+        List<WorkItemDependency> blockers = dependencies.findByWorkItemId(item.getId());
+        if (blockers.isEmpty()) return;
+        List<String> pending = new ArrayList<>();
+        for (WorkItemDependency dependency : blockers) {
+            WorkItem blocker = workItems.findById(dependency.getBlockedByWorkItemId())
+                    .orElseThrow(() -> new IllegalStateException("Missing blocker WorkItem: " + dependency.getBlockedByWorkItemId()));
+            if (blocker.getStatus() != WorkItemStatus.DONE) {
+                pending.add(Objects.toString(blocker.getExternalId(), blocker.getId().toString()) + "=" + blocker.getStatus());
+            }
+        }
+        if (!pending.isEmpty()) throw new IllegalStateException("WorkItem is blocked by: " + String.join(", ", pending));
     }
 
     private WorkItem refine(WorkItem item) {
