@@ -27,7 +27,7 @@ Wave 2: B + C
 Wave 3: D
 ```
 
-Cada WorkItem usa um `git worktree` isolado. Antes de criar uma nova worktree, o orchestrator atualiza `origin/<base-branch>` e cria a branch da IA sobre essa referência, para que uma nova onda nasça da main remota mais recente.
+Cada WorkItem usa um `git worktree` isolado. Se o repositório tem `origin`, uma nova worktree nasce de `origin/<base-branch>` atualizado; em um sandbox puramente local, ela nasce do `HEAD`.
 
 ## Principais capacidades
 
@@ -36,6 +36,7 @@ Cada WorkItem usa um `git worktree` isolado. Antes de criar uma nova worktree, o
 - Detecção de ciclos no DAG
 - Planejamento de ondas topológicas
 - Execução paralela com virtual threads e limite configurável
+- Auditoria persistida de WaveExecution e itens da onda
 - `DONE` como condição de desbloqueio de dependências
 - Optimistic locking em WorkItem
 - Refiner Agent, Backend Developer Agent e Reviewer Agent
@@ -125,6 +126,15 @@ Executar em paralelo toda a fronteira liberada do DAG até cada item chegar a um
 ```bash
 curl -X POST http://localhost:8080/api/projects/{projectId}/execute-ready
 ```
+
+A resposta inclui `waveExecutionId`. O histórico fica persistido:
+
+```bash
+curl http://localhost:8080/api/projects/{projectId}/wave-executions
+curl http://localhost:8080/api/projects/{projectId}/wave-executions/{waveExecutionId}/items
+```
+
+A onda termina como `COMPLETED`, `PARTIAL_FAILURE` ou `FAILED` e mantém status antes/depois e erro por WorkItem.
 
 Após review/merge humano de um item em `READY_FOR_HUMAN_REVIEW`, marque-o concluído:
 
@@ -252,14 +262,15 @@ curl http://localhost:8080/api/work-items/{id}/tool-executions
 - MCP fica desabilitado por padrão.
 - Dependências não atravessam Projects e ciclos são rejeitados.
 - WorkItem usa optimistic locking contra processamento concorrente acidental.
+- Colisão de versão/estado retorna HTTP 409; DAG inválido retorna 400.
 - Uma dependência só é liberada por `DONE`, que representa o gate humano concluído.
-- Novas worktrees partem de `origin/<base-branch>` atualizado.
+- Repositórios com remoto criam novas worktrees sobre `origin/<base-branch>` atualizado.
 - Publicação GitHub exige habilitação explícita.
 
 ## Próximos milestones
 
-1. Persistir WaveExecution/ProjectExecution e métricas por onda
-2. Classificação de risco/capabilities e aprovação humana para tools sensíveis
+1. Classificação de risco/capabilities e aprovação humana para tools sensíveis
+2. Persistir tokens/custo/latência por agente e por onda
 3. Trello adapter para importar cards e `blockedBy`
 4. Frontend Developer Agent
 5. QA Agent
