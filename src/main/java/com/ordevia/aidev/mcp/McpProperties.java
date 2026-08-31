@@ -1,0 +1,53 @@
+package com.ordevia.aidev.mcp;
+
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+@ConfigurationProperties(prefix = "aidev.mcp")
+public class McpProperties {
+    private boolean enabled = false;
+    private Duration requestTimeout = Duration.ofSeconds(30);
+    private Map<String, Server> servers = new LinkedHashMap<>();
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    public Duration getRequestTimeout() { return requestTimeout; }
+    public void setRequestTimeout(Duration requestTimeout) { this.requestTimeout = requestTimeout; }
+    public Map<String, Server> getServers() { return servers; }
+    public void setServers(Map<String, Server> servers) { this.servers = servers; }
+
+    public enum Transport { STDIO, STREAMABLE_HTTP }
+
+    public static class Server {
+        private boolean enabled = true;
+        private Transport transport = Transport.STDIO;
+        private String command;
+        private List<String> args = new ArrayList<>();
+        private Map<String, String> env = new LinkedHashMap<>();
+        private String url;
+        private String endpoint = "/mcp";
+        private Map<String, String> headers = new LinkedHashMap<>();
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public Transport getTransport() { return transport; }
+        public void setTransport(Transport transport) { this.transport = transport; }
+        public String getCommand() { return command; }
+        public void setCommand(String command) { this.command = command; }
+        public List<String> getArgs() { return args; }
+        public void setArgs(List<String> args) { this.args = args; }
+        public Map<String, String> getEnv() { return env; }
+        public void setEnv(Map<String, String> env) { this.env = env; }
+        public String getUrl() { return url; }
+        public void setUrl(String url) { this.url = url; }
+        public String getEndpoint() { return endpoint; }
+        public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
+        public Map<String, String> getHeaders() { return headers; }
+        public void setHeaders(Map<String, String> headers) { this.headers = headers; }
+    }
+}
