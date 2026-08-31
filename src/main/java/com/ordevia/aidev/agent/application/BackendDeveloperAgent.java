@@ -2,6 +2,7 @@ package com.ordevia.aidev.agent.application;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ordevia.aidev.agent.domain.*;
+import com.ordevia.aidev.agent.policy.AgentToolAccessService;
 import com.ordevia.aidev.agent.tool.*;
 import com.ordevia.aidev.execution.domain.ToolExecution;
 import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
@@ -15,16 +16,16 @@ import java.util.*;
 @Component
 public class BackendDeveloperAgent implements Agent {
     private final LlmGateway llm;
-    private final ToolRegistry tools;
+    private final AgentToolAccessService toolAccess;
     private final ObjectMapper mapper;
     private final ToolExecutionJpaRepository toolExecutions;
     private final int maxSteps;
 
-    public BackendDeveloperAgent(LlmGateway llm, ToolRegistry tools, ObjectMapper mapper,
+    public BackendDeveloperAgent(LlmGateway llm, AgentToolAccessService toolAccess, ObjectMapper mapper,
                                  ToolExecutionJpaRepository toolExecutions,
                                  @Value("${aidev.agents.backend.max-steps:20}") int maxSteps) {
         this.llm = llm;
-        this.tools = tools;
+        this.toolAccess = toolAccess;
         this.mapper = mapper;
         this.toolExecutions = toolExecutions;
         this.maxSteps = maxSteps;
@@ -56,7 +57,7 @@ public class BackendDeveloperAgent implements Agent {
                     toolExecutions.saveAndFlush(execution);
                     String providerOutput;
                     try {
-                        ToolResult result = tools.required(call.name()).execute(context.repository(), call.arguments());
+                        ToolResult result = toolAccess.required(type(), call.name()).execute(context.repository(), call.arguments());
                         if (result.success()) { execution.succeed(result.output()); providerOutput = result.output(); }
                         else { execution.fail(result.error()); providerOutput = "ERROR: " + result.error(); }
                     } catch (Exception e) {
@@ -76,7 +77,7 @@ public class BackendDeveloperAgent implements Agent {
 
     private List<LlmToolDefinition> toolDefinitions() {
         List<LlmToolDefinition> definitions = new ArrayList<>();
-        for (AgentTool tool : tools.all()) {
+        for (AgentTool tool : toolAccess.allowedTools(type())) {
             Map<String, Object> schema = switch (tool.name()) {
                 case "search_code" -> objectSchema(Map.of("query", Map.of("type", "string", "description", "Text, class, method or symbol to search for")), List.of("query"));
                 case "read_file" -> objectSchema(Map.of("path", Map.of("type", "string", "description", "Repository-relative file path")), List.of("path"));
@@ -119,6 +120,7 @@ public class BackendDeveloperAgent implements Agent {
                 Inspect the repository before editing. Preserve the existing architecture, style and conventions.
                 Prefer search_code before broad reads. Never invent tool results.
                 MCP tools may provide external documentation, issue trackers, databases or other capabilities; use them only when relevant.
+                Only tools explicitly exposed to you by policy are authorized.
                 Run tests or compilation before finishing when the repository supports them.
                 When complete, return a concise markdown report containing files changed, tests, design decisions, risks and remaining work.
                 """;
