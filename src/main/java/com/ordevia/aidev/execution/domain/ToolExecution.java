@@ -78,10 +78,16 @@ public class ToolExecution {
         this.durationMs = Duration.between(startedAt, finishedAt).toMillis();
     }
 
+    public UUID getId() { return id; }
+    public UUID getWorkItemId() { return workItemId; }
+    public AgentType getAgentType() { return agentType; }
     public int getStepNumber() { return stepNumber; }
     public String getToolName() { return toolName; }
     public String getArgumentsJson() { return argumentsJson; }
     public ToolExecutionStatus getStatus() { return status; }
     public String getOutputText() { return outputText; }
     public String getErrorMessage() { return errorMessage; }
+    public Instant getStartedAt() { return startedAt; }
+    public Instant getFinishedAt() { return finishedAt; }
+    public Long getDurationMs() { return durationMs; }
 }
