@@ -1,22 +1,184 @@
 # AI Dev Orchestrator
 
-MVP local de uma software factory baseada em agentes de IA, com OpenAI/Gemini, tool calling, MCP, políticas por agente e orquestração de projetos em DAG.
+Software factory local baseada em agentes de IA, com OpenAI/Gemini, tool calling, MCP, políticas por papel, planejamento humano interativo e orquestração de projetos em DAG.
 
-## Estado atual
+## Fluxo completo
 
-Um WorkItem individual percorre:
+```text
+IDEIA / CARD
+    |
+    v
+Product Planning Agent
+    |
+    +--> perguntas de negócio --> HUMANO --> nova rodada
+    |
+    +--> revisão do plano ------> HUMANO --> aprova ou pede mudanças
+    |
+    v
+Domain Guardian
+    |
+    v
+Architect Agent
+    |  escolhe DELIVERY_ROLES
+    +-----------------------+
+    |                       |
+    v                       v
+Backend Agent          Frontend Agent
+    |                       |
+    +-----------+-----------+
+                |
+                v
+        Integration Agent (quando necessário)
+                |
+                v
+             QA Agent
+                |
+                v
+          Reviewer Agent
+                |
+                v
+       Security Reviewer
+                |
+                v
+        Release Readiness
+                |
+                v
+            HUMAN GATE
+                |
+              merge
+                |
+                v
+              DONE
+                |
+          desbloqueia DAG
+```
+
+Projetos agrupam WorkItems e dependências `blockedBy`. O orchestrator calcula ondas topológicas e executa em paralelo apenas itens cujos blockers estejam `DONE`.
+
+## Planejamento interativo
+
+O Product Planning Agent não pode preencher lacunas relevantes com suposições silenciosas. Quando uma informação ausente puder alterar regra de negócio, dados, API/contrato, cobrança, integração, segurança, permissão, experiência do usuário, auditoria ou operação, ele deve perguntar.
+
+A sessão diferencia:
+
+- `facts`: informação presente no card ou confirmada;
+- `decisions`: decisão humana explícita;
+- `assumptions`: hipótese ainda não confirmada;
+- perguntas `blocking`: impedem o planejamento de ser considerado pronto.
+
+Ele faz no máximo cinco perguntas prioritárias por rodada e possui um limite configurável de rodadas. Ao atingir o limite, o item vai para `PLANNING_HUMAN_REQUIRED` em vez de continuar perguntando indefinidamente.
+
+Estados principais:
 
 ```text
 NEW
- -> REFINING
- -> READY_FOR_DEVELOPMENT
- -> IMPLEMENTING
- -> REVIEWING
- -> CHANGES_REQUESTED | READY_FOR_HUMAN_REVIEW
- -> DONE (gate humano)
+ -> PLANNING
+ -> WAITING_FOR_USER_INPUT
+ -> PLANNING
+ -> READY_FOR_PLANNING_REVIEW
+ -> READY_FOR_DOMAIN_VALIDATION (após aprovação humana)
 ```
 
-Projetos agrupam WorkItems e dependências `blockedBy`. O orchestrator calcula ondas topológicas e executa, em paralelo, apenas itens cujos blockers estejam `DONE`.
+Se a especificação pronta ainda não estiver boa, o humano pode pedir mudanças com feedback livre e iniciar outra rodada sem perder o histórico.
+
+### Exemplo
+
+Inicie o planejamento:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/planning/start
+```
+
+Consulte a sessão e perguntas:
+
+```bash
+curl http://localhost:8080/api/work-items/{id}/planning
+curl http://localhost:8080/api/work-items/{id}/planning/questions
+```
+
+Responda uma pergunta:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/planning/questions/{questionId}/answer \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "answer":"Somente títulos ABERTO e VENCIDO podem ser alterados.",
+    "answeredBy":"wanderson"
+  }'
+```
+
+Depois de responder todas as perguntas bloqueantes da rodada:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/planning/continue
+```
+
+Quando estiver em `READY_FOR_PLANNING_REVIEW`, aprove:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/planning/approve
+```
+
+Ou peça revisão:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/planning/request-changes \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "feedback":"Faltou considerar títulos registrados no banco e a auditoria da data anterior.",
+    "providedBy":"wanderson"
+  }'
+```
+
+Histórico de feedback:
+
+```bash
+curl http://localhost:8080/api/work-items/{id}/planning/feedback
+```
+
+## Papéis
+
+| Papel | Responsabilidade | Escrita no código |
+|---|---|---|
+| Product Planning / REFINER | descobrir requisitos e conversar com o humano | não |
+| DOMAIN_GUARDIAN | validar terminologia e invariantes do domínio | não |
+| ARCHITECT | inspecionar o repo e produzir plano técnico/roles | não |
+| BACKEND_DEVELOPER | backend, domínio, API, dados | sim |
+| FRONTEND_DEVELOPER | UI/client quando necessário | sim |
+| INTEGRATION_ENGINEER | corrigir seams/contratos entre componentes | sim, restrito |
+| QA_ENGINEER | testes e validação automatizada | sim, focado em testes |
+| REVIEWER | code review contra spec + arquitetura | não |
+| SECURITY_REVIEWER | revisão de AppSec | não |
+| RELEASE_ENGINEER | readiness, release notes e rollback checklist | não |
+
+O Architect seleciona somente os implementadores necessários usando um contrato como:
+
+```text
+DELIVERY_ROLES: BACKEND,FRONTEND,INTEGRATION
+DECISION: READY
+```
+
+Assim um card puramente backend não paga por um agente frontend sem necessidade.
+
+## Human gates
+
+O sistema prefere pedir decisão humana a inventar contexto. Além do planejamento, há gates para domínio, arquitetura e release quando os agentes não têm evidência suficiente:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/human-gates/domain/approve
+curl -X POST http://localhost:8080/api/work-items/{id}/human-gates/architecture/approve
+curl -X POST http://localhost:8080/api/work-items/{id}/human-gates/release/approve
+```
+
+O merge final continua humano. Depois do merge:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/complete
+```
+
+Somente `DONE` satisfaz `blockedBy` e libera a próxima onda.
+
+## Projetos, DAG e ondas
 
 ```text
 A ---------> B -----> D
@@ -26,50 +188,6 @@ Wave 1: A
 Wave 2: B + C
 Wave 3: D
 ```
-
-Cada WorkItem usa um `git worktree` isolado. Se o repositório tem `origin`, uma nova worktree nasce de `origin/<base-branch>` atualizado; em um sandbox puramente local, ela nasce do `HEAD`.
-
-## Principais capacidades
-
-- Project + WorkItem persistidos em PostgreSQL
-- Dependências `blockedBy` persistidas e validadas
-- Detecção de ciclos no DAG
-- Planejamento de ondas topológicas
-- Execução paralela com virtual threads e limite configurável
-- Auditoria persistida de WaveExecution e itens da onda
-- `DONE` como condição de desbloqueio de dependências
-- Optimistic locking em WorkItem
-- Refiner Agent, Backend Developer Agent e Reviewer Agent
-- OpenAI Responses API + native function calling
-- Gemini Interactions API + native function calling
-- Tool registry dinâmico e ToolPolicy deny-by-default
-- Tools locais: `search_code`, `read_file`, `write_file`, `run_command`
-- MCP STDIO + Streamable HTTP + discovery `tools/list`
-- MCP tools adaptadas automaticamente para AgentTool
-- Auditoria de AgentExecution e ToolExecution
-- Git worktree por WorkItem
-- Publicação explícita para Draft PR no GitHub
-- Flyway, Swagger/OpenAPI e GitHub Actions Java 25
-
-## Requisitos
-
-- Java 25
-- Maven 3.9+
-- Docker / Docker Compose
-- Git
-- API key OpenAI e/ou Gemini para as rotas habilitadas
-- Runtime dos MCPs STDIO usados, por exemplo Node/npm, Python/uv ou Java
-
-## Executar
-
-```bash
-docker compose up -d postgres
-mvn spring-boot:run
-```
-
-Swagger: `http://localhost:8080/swagger-ui.html`
-
-## Orquestração por projeto
 
 Paralelismo máximo:
 
@@ -85,11 +203,11 @@ curl -X POST http://localhost:8080/api/projects \
   -d '{
     "name":"Financeiro ERP",
     "description":"Nova jornada financeira",
-    "repositoryPath":"repositories/erp-backend"
+    "repositoryPath":"repositories/erp"
   }'
 ```
 
-Criar o primeiro ticket:
+Adicionar WorkItem:
 
 ```bash
 curl -X POST http://localhost:8080/api/projects/{projectId}/work-items \
@@ -102,110 +220,67 @@ curl -X POST http://localhost:8080/api/projects/{projectId}/work-items \
   }'
 ```
 
-Criar um ticket dependente:
-
-```bash
-curl -X POST http://localhost:8080/api/projects/{projectId}/work-items \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "externalId":"CARD-102",
-    "title":"Criar API de contas",
-    "description":"...",
-    "blockedBy":["{workItemIdCard101}"]
-  }'
-```
-
-Consultar o DAG, ondas, ciclos e itens executáveis agora:
+Consultar DAG e fronteira executável:
 
 ```bash
 curl http://localhost:8080/api/projects/{projectId}/dag
 ```
 
-Executar em paralelo toda a fronteira liberada do DAG até cada item chegar a um gate:
+Executar a próxima fronteira até cada item chegar a algum human gate, `DONE` ou `FAILED`:
 
 ```bash
 curl -X POST http://localhost:8080/api/projects/{projectId}/execute-ready
 ```
 
-A resposta inclui `waveExecutionId`. O histórico fica persistido:
+Auditoria das ondas:
 
 ```bash
 curl http://localhost:8080/api/projects/{projectId}/wave-executions
 curl http://localhost:8080/api/projects/{projectId}/wave-executions/{waveExecutionId}/items
 ```
 
-A onda termina como `COMPLETED`, `PARTIAL_FAILURE` ou `FAILED` e mantém status antes/depois e erro por WorkItem.
+## Worktrees
 
-Após review/merge humano de um item em `READY_FOR_HUMAN_REVIEW`, marque-o concluído:
+Cada WorkItem usa `git worktree` isolado. Se o repositório tiver `origin`, a nova branch nasce de `origin/<base-branch>` após fetch; se for um sandbox puramente local, nasce do `HEAD`.
 
-```bash
-curl -X POST http://localhost:8080/api/work-items/{workItemId}/complete
+```text
+workspace/
+  repositories/erp
+  worktrees/CARD-101
+  worktrees/CARD-102
 ```
 
-Somente `DONE` satisfaz `blockedBy`; portanto a próxima onda não começa apenas porque a IA terminou ou abriu um PR.
+Isso permite múltiplos agentes atuando em paralelo sem compartilhar checkout.
 
-## Tool Policy
+## Tool calling e MCP
 
-A política é deny-by-default e aplicada duas vezes: antes da tool ser exposta ao LLM e antes da execução.
+Todos os agentes que precisam de ferramentas passam pelo mesmo `ToolLoopRunner` e `ToolRegistry`.
 
-```yaml
-aidev:
-  tool-policy:
-    default-effect: DENY
-    policies:
-      BACKEND_DEVELOPER:
-        allow:
-          - search_code
-          - read_file
-          - write_file
-          - run_command
-          - mcp_context7_*
-      REVIEWER:
-        allow:
-          - search_code
-          - read_file
-        deny:
-          - write_file
-          - run_command
-      REFINER:
-        allow: []
-        deny:
-          - '*'
+Tools locais atuais:
+
+```text
+search_code
+read_file
+write_file
+run_command
 ```
 
-`deny` sempre vence `allow` e padrões aceitam wildcard `*`.
+MCP suporta STDIO e Streamable HTTP. Discovery remoto via `tools/list` registra automaticamente ferramentas como:
 
-Auditoria:
-
-```bash
-curl http://localhost:8080/api/tool-policies
-curl http://localhost:8080/api/tool-policies/BACKEND_DEVELOPER
+```text
+mcp_context7_search_docs
+mcp_postgres_describe_table
+mcp_github_search_issue
 ```
 
-## MCP
-
-MCP vem desabilitado por padrão:
+MCP vem desligado por padrão:
 
 ```bash
 export AIDEV_MCP_ENABLED=true
 export AIDEV_MCP_REQUEST_TIMEOUT=30s
 ```
 
-Exemplo STDIO em `application-local.yml`:
-
-```yaml
-aidev:
-  mcp:
-    enabled: true
-    servers:
-      filesystem:
-        transport: STDIO
-        command: npx
-        args: ["-y", "@modelcontextprotocol/server-filesystem", "/caminho/permitido"]
-        include-tools: [read_file, list_directory]
-```
-
-Exemplo Streamable HTTP:
+Exemplo `application-local.yml`:
 
 ```yaml
 aidev:
@@ -220,59 +295,146 @@ aidev:
           Authorization: "Bearer ${DOCS_MCP_TOKEN}"
 ```
 
-Operação:
+Status/reconnect:
 
 ```bash
 curl http://localhost:8080/api/mcp/servers
 curl -X POST http://localhost:8080/api/mcp/servers/docs/reconnect
 ```
 
-## WorkItem individual
+## ToolPolicy
 
-Ainda é possível usar o modo simples sem Project:
+A política é deny-by-default e aplicada tanto na exposição ao LLM quanto na execução.
 
-```bash
-curl -X POST http://localhost:8080/api/work-items \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "externalId":"TEST-001",
-    "title":"Criar endpoint de health check",
-    "description":"Criar um endpoint que informe o status da aplicação.",
-    "repositoryPath":"repositories/sample"
-  }'
+Padrão atual:
+
+- Product Planning: sem tools;
+- Domain Guardian: read-only;
+- Architect: read-only;
+- Backend/Frontend/Integration/QA: tools de escrita/execução autorizadas;
+- Reviewer/Security/Release: read-only.
+
+MCPs não ficam autorizados apenas por estarem conectados. Libere explicitamente por papel, por exemplo:
+
+```yaml
+aidev:
+  tool-policy:
+    policies:
+      ARCHITECT:
+        allow:
+          - search_code
+          - read_file
+          - mcp_context7_*
+      BACKEND_DEVELOPER:
+        allow:
+          - search_code
+          - read_file
+          - write_file
+          - run_command
+          - mcp_context7_*
+          - mcp_postgres_describe_*
 ```
 
-Avançar uma transição:
+Auditoria:
 
 ```bash
-curl -X POST http://localhost:8080/api/work-items/{id}/start
+curl http://localhost:8080/api/tool-policies
+curl http://localhost:8080/api/tool-policies/BACKEND_DEVELOPER
 ```
 
-Auditoria das tools:
+## LLM routing
+
+Cada papel pode usar provider/modelo diferente sem recompilar. Defaults atuais:
+
+```text
+Planning          Gemini
+Domain Guardian   Gemini
+Architecture      OpenAI
+Backend           OpenAI
+Frontend          Gemini
+Integration       OpenAI
+QA                Gemini
+Review            OpenAI
+Security          OpenAI
+Release           OpenAI
+```
+
+Veja `.env.example` para todas as variáveis.
+
+## Auditoria
+
+Persistimos:
+
+- AgentExecution;
+- ToolExecution com argumentos, saída, erro, duração e step;
+- PlanningSession, perguntas, respostas e feedback humano;
+- especificação aprovada;
+- validação de domínio;
+- architecture plan + delivery roles;
+- relatórios de implementação, integração, QA, review, security e release;
+- WaveExecution + itens da onda;
+- branch/PR metadata.
+
+Tool history:
 
 ```bash
 curl http://localhost:8080/api/work-items/{id}/tool-executions
 ```
 
+## GitHub Draft PR
+
+Publicação continua explícita e desligada por padrão:
+
+```bash
+export AIDEV_GITHUB_PUBLISH_ENABLED=true
+export AIDEV_GITHUB_TOKEN=...
+```
+
+Quando o item chegar a `READY_FOR_HUMAN_REVIEW`:
+
+```bash
+curl -X POST http://localhost:8080/api/work-items/{id}/publish
+```
+
+O sistema cria/usa a branch do WorkItem e prepara um Draft PR; merge e produção permanecem gates humanos.
+
 ## Segurança e governança
 
-- `.env` e `application-local.yml` não devem ser versionados.
-- Shell local passa por CommandPolicy e workspace root.
-- ToolPolicy é deny-by-default.
-- MCP fica desabilitado por padrão.
-- Dependências não atravessam Projects e ciclos são rejeitados.
-- WorkItem usa optimistic locking contra processamento concorrente acidental.
-- Colisão de versão/estado retorna HTTP 409; DAG inválido retorna 400.
-- Uma dependência só é liberada por `DONE`, que representa o gate humano concluído.
-- Repositórios com remoto criam novas worktrees sobre `origin/<base-branch>` atualizado.
-- Publicação GitHub exige habilitação explícita.
+- `.env` e `application-local.yml` ficam fora do Git;
+- workspace root restringe filesystem;
+- `CommandPolicy` restringe executáveis do shell;
+- `ToolPolicy` é deny-by-default;
+- MCP fica desligado por padrão e requer allowlist por agente;
+- Reviewer, Security, Domain Guardian e Release são read-only por padrão;
+- dependências não atravessam Projects;
+- ciclos no DAG são rejeitados;
+- WorkItem usa optimistic locking;
+- planejamento não pode ficar READY com pergunta ou assumption bloqueante;
+- somente `DONE` libera dependentes;
+- Release Agent não recebe permissão para deploy/tag/push;
+- publicação GitHub requer habilitação explícita.
 
-## Próximos milestones
+## Requisitos e execução
 
-1. Classificação de risco/capabilities e aprovação humana para tools sensíveis
-2. Persistir tokens/custo/latência por agente e por onda
-3. Trello adapter para importar cards e `blockedBy`
-4. Frontend Developer Agent
-5. QA Agent
-6. Security Reviewer
-7. JetBrains bridge opcional
+- Java 25
+- Maven 3.9+
+- Docker / Docker Compose
+- Git
+- API key da OpenAI e/ou Gemini conforme rotas habilitadas
+- runtime necessário aos MCPs STDIO usados
+
+```bash
+docker compose up -d postgres
+mvn spring-boot:run
+```
+
+Swagger: `http://localhost:8080/swagger-ui.html`
+
+## Próximos passos
+
+- Trello adapter para importar cards, comentários/respostas e `blockedBy`;
+- classificação de risco/capabilities para ferramentas sensíveis;
+- tokens/custo/latência por agente, WorkItem e onda;
+- contracts/multi-repository para backend + frontend em repositórios separados;
+- JetBrains bridge opcional para symbol index, inspections e refactors;
+- webhook de merge para marcar `DONE` automaticamente sob política.
