@@ -1,6 +1,5 @@
 package com.ordevia.aidev.agent.application;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ordevia.aidev.agent.domain.*;
 import com.ordevia.aidev.agent.tool.*;
@@ -9,6 +8,7 @@ import com.ordevia.aidev.execution.infrastructure.ToolExecutionJpaRepository;
 import com.ordevia.aidev.llm.domain.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.*;
 
@@ -42,67 +42,112 @@ public class BackendDeveloperAgent implements Agent {
         try {
             List<ToolExecution> previous = toolExecutions.findByWorkItemIdAndAgentTypeOrderByStepNumberAsc(context.workItemId(), type());
             String transcript = buildTranscript(previous);
-            int firstStep = previous.stream().mapToInt(ToolExecution::getStepNumber).max().orElse(0) + 1;
+            int step = previous.stream().mapToInt(ToolExecution::getStepNumber).max().orElse(0);
 
-            for (int step = firstStep; step <= maxSteps; step++) {
-                String response = llm.execute(new LlmRequest(
-                        LlmTask.BACKEND_IMPLEMENTATION,
-                        systemPrompt(),
-                        userPrompt(context, transcript, step))).content();
+            LlmToolRequest request = LlmToolRequest.initial(
+                    LlmTask.BACKEND_IMPLEMENTATION,
+                    systemPrompt(),
+                    userPrompt(context, transcript),
+                    toolDefinitions());
 
-                Map<String, Object> action = parseJson(response);
-                String actionType = String.valueOf(action.get("type"));
+            while (step < maxSteps) {
+                LlmToolResponse response = llm.executeTools(request);
 
-                if ("complete".equals(actionType)) {
-                    return AgentResult.success(String.valueOf(action.getOrDefault("report", response)));
-                }
-
-                if (!"tool".equals(actionType)) {
-                    transcript = appendTranscript(transcript, "STEP " + step + " INVALID_RESPONSE => " + response);
-                    continue;
-                }
-
-                String toolName = String.valueOf(action.get("tool"));
-                @SuppressWarnings("unchecked")
-                Map<String, Object> args = action.get("arguments") instanceof Map<?, ?> m
-                        ? (Map<String, Object>) m
-                        : Map.of();
-
-                ToolExecution execution = new ToolExecution(
-                        UUID.randomUUID(),
-                        context.workItemId(),
-                        type(),
-                        step,
-                        toolName,
-                        mapper.writeValueAsString(args));
-                toolExecutions.saveAndFlush(execution);
-
-                ToolResult result;
-                try {
-                    result = tools.required(toolName).execute(context.repository(), args);
-                    if (result.success()) {
-                        execution.succeed(result.output());
-                    } else {
-                        execution.fail(result.error());
+                if (!response.hasToolCalls()) {
+                    if (StringUtils.hasText(response.text())) {
+                        return AgentResult.success(response.text());
                     }
-                } catch (Exception e) {
-                    execution.fail(e.getMessage());
-                    toolExecutions.save(execution);
-                    transcript = appendTranscript(transcript, "STEP " + step + " TOOL " + toolName + " => ERROR: " + e.getMessage());
-                    continue;
+                    return AgentResult.failure("LLM finished without tool calls or an implementation report");
                 }
 
-                toolExecutions.save(execution);
-                transcript = appendTranscript(
-                        transcript,
-                        "STEP " + step + " TOOL " + toolName + " ARGS " + execution.getArgumentsJson() + " => " +
-                                (result.success() ? result.output() : "ERROR: " + result.error()));
+                if (!StringUtils.hasText(response.turnId())) {
+                    return AgentResult.failure("LLM provider did not return a continuation turn id");
+                }
+
+                List<LlmToolResult> results = new ArrayList<>();
+
+                for (LlmToolCall call : response.toolCalls()) {
+                    if (step >= maxSteps) {
+                        return AgentResult.failure("Backend agent exceeded max steps: " + maxSteps);
+                    }
+                    step++;
+
+                    String argumentsJson = mapper.writeValueAsString(call.arguments());
+                    ToolExecution execution = new ToolExecution(
+                            UUID.randomUUID(),
+                            context.workItemId(),
+                            type(),
+                            step,
+                            call.name(),
+                            argumentsJson);
+                    toolExecutions.saveAndFlush(execution);
+
+                    String providerOutput;
+                    try {
+                        ToolResult result = tools.required(call.name()).execute(context.repository(), call.arguments());
+                        if (result.success()) {
+                            execution.succeed(result.output());
+                            providerOutput = result.output();
+                        } else {
+                            execution.fail(result.error());
+                            providerOutput = "ERROR: " + result.error();
+                        }
+                    } catch (Exception e) {
+                        execution.fail(e.getMessage());
+                        providerOutput = "ERROR: " + e.getMessage();
+                    }
+
+                    toolExecutions.save(execution);
+                    results.add(new LlmToolResult(call.id(), call.name(), providerOutput));
+                }
+
+                request = request.continueWith(response.turnId(), results);
             }
 
             return AgentResult.failure("Backend agent exceeded max steps: " + maxSteps);
         } catch (Exception e) {
             return AgentResult.failure(e.getMessage());
         }
+    }
+
+    private List<LlmToolDefinition> toolDefinitions() {
+        List<LlmToolDefinition> definitions = new ArrayList<>();
+        for (AgentTool tool : tools.all()) {
+            definitions.add(new LlmToolDefinition(tool.name(), tool.description(), schemaFor(tool.name())));
+        }
+        return definitions;
+    }
+
+    private Map<String, Object> schemaFor(String toolName) {
+        return switch (toolName) {
+            case "search_code" -> objectSchema(
+                    Map.of("query", Map.of("type", "string", "description", "Text, class, method or symbol to search for")),
+                    List.of("query"));
+            case "read_file" -> objectSchema(
+                    Map.of("path", Map.of("type", "string", "description", "Repository-relative file path")),
+                    List.of("path"));
+            case "write_file" -> objectSchema(
+                    Map.of(
+                            "path", Map.of("type", "string", "description", "Repository-relative file path"),
+                            "content", Map.of("type", "string", "description", "Complete replacement file contents")),
+                    List.of("path", "content"));
+            case "run_command" -> objectSchema(
+                    Map.of("command", Map.of(
+                            "type", "array",
+                            "items", Map.of("type", "string"),
+                            "description", "Command and arguments as an array, for example [\"git\",\"status\",\"--short\"]")),
+                    List.of("command"));
+            default -> objectSchema(Map.of(), List.of());
+        };
+    }
+
+    private Map<String, Object> objectSchema(Map<String, Object> properties, List<String> required) {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "object");
+        schema.put("properties", properties);
+        schema.put("required", required);
+        schema.put("additionalProperties", false);
+        return schema;
     }
 
     private String buildTranscript(List<ToolExecution> executions) {
@@ -126,41 +171,23 @@ public class BackendDeveloperAgent implements Agent {
         return updated.length() > 50_000 ? updated.substring(updated.length() - 50_000) : updated;
     }
 
-    private Map<String, Object> parseJson(String raw) throws Exception {
-        String json = raw.trim();
-        if (json.startsWith("```")) {
-            int firstNl = json.indexOf('\n');
-            int last = json.lastIndexOf("```");
-            if (firstNl >= 0 && last > firstNl) {
-                json = json.substring(firstNl + 1, last).trim();
-            }
-        }
-        return mapper.readValue(json, new TypeReference<>() {});
-    }
-
     private String systemPrompt() {
         return """
-                You are a Staff Backend Engineer operating an existing repository through tools.
-                Never invent successful tool results. Inspect the code before editing it. Preserve architecture and conventions.
-                Prefer search_code before broad reads. Run tests or compilation before completing when the repository supports them.
-                Previous tool results may come from an earlier process execution; treat them as authoritative history.
-                Respond ONLY with one JSON object per turn.
-                To use a tool: {"type":"tool","tool":"search_code|read_file|write_file|run_command","arguments":{...}}
-                search_code arguments: {"query":"text"}
-                read_file arguments: {"path":"relative/path"}
-                write_file arguments: {"path":"relative/path","content":"full file contents"}
-                run_command arguments: {"command":["git","status","--short"]}
-                To finish: {"type":"complete","report":"markdown implementation report including files changed, tests, risks and remaining work"}
-                Never include markdown fences around the JSON.
+                You are a Staff Backend Engineer operating an existing repository through provided tools.
+                Inspect the repository before editing. Preserve the existing architecture, style and conventions.
+                Prefer search_code before broad reads. Never invent tool results.
+                Run tests or compilation before finishing when the repository supports them.
+                When the implementation is complete, return a concise markdown implementation report containing:
+                files changed, tests executed, relevant design decisions, risks and remaining work.
+                Previous tool history in the initial task may come from an interrupted process and is authoritative.
                 """;
     }
 
-    private String userPrompt(AgentContext c, String transcript, int step) {
+    private String userPrompt(AgentContext c, String transcript) {
         return "TITLE: " + c.title() +
                 "\nDESCRIPTION: " + c.description() +
                 "\nSPECIFICATION:\n" + c.specification() +
                 "\nRepository: " + c.repository() +
-                "\nStep: " + step +
-                "\nPrevious tool results:\n" + transcript;
+                "\nPrevious persisted tool history:\n" + transcript;
     }
 }
