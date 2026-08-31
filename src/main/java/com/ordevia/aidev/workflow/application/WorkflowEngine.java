@@ -8,7 +8,7 @@ import com.ordevia.aidev.workitem.domain.*;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemDependencyJpaRepository;
 import com.ordevia.aidev.workitem.infrastructure.WorkItemJpaRepository;
 import com.ordevia.aidev.workspace.application.GitWorktreeManager;
-import org.springframework.beans.factory.annotation.Value;
+import com.ordevia.aidev.workspace.application.MultiRepositoryWorkspaceManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,8 +23,8 @@ public class WorkflowEngine {
     private final WorkItemDependencyJpaRepository dependencies;
     private final AgentExecutionJpaRepository executions;
     private final Map<AgentType, Agent> agents;
-    private final Path workspaceRoot;
     private final GitWorktreeManager worktrees;
+    private final MultiRepositoryWorkspaceManager multiWorkspace;
     private final PlanningService planning;
     private final int maxReviewIterations;
 
@@ -33,16 +33,16 @@ public class WorkflowEngine {
                           AgentExecutionJpaRepository executions,
                           List<Agent> agentList,
                           GitWorktreeManager worktrees,
+                          MultiRepositoryWorkspaceManager multiWorkspace,
                           PlanningService planning,
-                          @Value("${aidev.workspace-root}") String workspaceRoot,
-                          @Value("${aidev.agents.review.max-iterations:3}") int maxReviewIterations) {
+                          @org.springframework.beans.factory.annotation.Value("${aidev.agents.review.max-iterations:3}") int maxReviewIterations) {
         this.workItems = workItems;
         this.dependencies = dependencies;
         this.executions = executions;
         this.agents = new EnumMap<>(AgentType.class);
         agentList.forEach(a -> agents.put(a.type(), a));
-        this.workspaceRoot = Path.of(workspaceRoot).toAbsolutePath().normalize();
         this.worktrees = worktrees;
+        this.multiWorkspace = multiWorkspace;
         this.planning = planning;
         this.maxReviewIterations = maxReviewIterations;
     }
@@ -81,9 +81,7 @@ public class WorkflowEngine {
     @Transactional
     public WorkItem approveDomainOverride(UUID id) {
         WorkItem item = requiredItem(id);
-        if (item.getStatus() != WorkItemStatus.DOMAIN_HUMAN_REQUIRED) {
-            throw new IllegalStateException("WorkItem is not waiting for domain approval");
-        }
+        if (item.getStatus() != WorkItemStatus.DOMAIN_HUMAN_REQUIRED) throw new IllegalStateException("WorkItem is not waiting for domain approval");
         item.moveTo(WorkItemStatus.READY_FOR_ARCHITECTURE);
         return workItems.save(item);
     }
@@ -91,9 +89,7 @@ public class WorkflowEngine {
     @Transactional
     public WorkItem approveArchitectureOverride(UUID id) {
         WorkItem item = requiredItem(id);
-        if (item.getStatus() != WorkItemStatus.ARCHITECTURE_HUMAN_REQUIRED) {
-            throw new IllegalStateException("WorkItem is not waiting for architecture approval");
-        }
+        if (item.getStatus() != WorkItemStatus.ARCHITECTURE_HUMAN_REQUIRED) throw new IllegalStateException("WorkItem is not waiting for architecture approval");
         if (item.getDeliveryRoles() == null || item.getDeliveryRoles().isBlank()) item.setDeliveryRoles("BACKEND");
         item.moveTo(WorkItemStatus.READY_FOR_DEVELOPMENT);
         return workItems.save(item);
@@ -102,9 +98,7 @@ public class WorkflowEngine {
     @Transactional
     public WorkItem approveReleaseOverride(UUID id) {
         WorkItem item = requiredItem(id);
-        if (item.getStatus() != WorkItemStatus.RELEASE_HUMAN_REQUIRED) {
-            throw new IllegalStateException("WorkItem is not waiting for release approval");
-        }
+        if (item.getStatus() != WorkItemStatus.RELEASE_HUMAN_REQUIRED) throw new IllegalStateException("WorkItem is not waiting for release approval");
         item.moveTo(WorkItemStatus.READY_FOR_HUMAN_REVIEW);
         return workItems.save(item);
     }
@@ -112,13 +106,12 @@ public class WorkflowEngine {
     private WorkItem validateDomain(WorkItem item) {
         item.moveTo(WorkItemStatus.DOMAIN_VALIDATING);
         workItems.save(item);
-        AgentResult result = executeAgent(item, AgentType.DOMAIN_GUARDIAN, repository(item), Map.of());
-        if (!result.success()) {
-            item.moveTo(WorkItemStatus.FAILED);
-        } else {
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.DOMAIN_GUARDIAN, workspace.root(), metadataWithWorkspace(workspace, Map.of()));
+        if (!result.success()) item.moveTo(WorkItemStatus.FAILED);
+        else {
             item.setDomainValidationReport(result.output());
-            if (result.output().contains("DECISION: APPROVED")) item.moveTo(WorkItemStatus.READY_FOR_ARCHITECTURE);
-            else item.moveTo(WorkItemStatus.DOMAIN_HUMAN_REQUIRED);
+            item.moveTo(result.output().contains("DECISION: APPROVED") ? WorkItemStatus.READY_FOR_ARCHITECTURE : WorkItemStatus.DOMAIN_HUMAN_REQUIRED);
         }
         return workItems.save(item);
     }
@@ -126,41 +119,35 @@ public class WorkflowEngine {
     private WorkItem architect(WorkItem item) {
         item.moveTo(WorkItemStatus.ARCHITECTING);
         workItems.save(item);
-        AgentResult result = executeAgent(item, AgentType.ARCHITECT, repository(item), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.ARCHITECT, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "domainValidationReport", Objects.toString(item.getDomainValidationReport(), "")
-        ));
-        if (!result.success()) {
-            item.moveTo(WorkItemStatus.FAILED);
-            return workItems.save(item);
-        }
+        )));
+        if (!result.success()) return fail(item);
 
         item.setArchitecturePlan(result.output());
         Set<String> roles = parseDeliveryRoles(result.output());
         if (!roles.isEmpty()) item.setDeliveryRoles(String.join(",", roles));
-
-        if (result.output().contains("DECISION: HUMAN_REQUIRED") || roles.isEmpty()) {
-            item.moveTo(WorkItemStatus.ARCHITECTURE_HUMAN_REQUIRED);
-        } else {
-            item.moveTo(WorkItemStatus.READY_FOR_DEVELOPMENT);
-        }
+        item.moveTo(result.output().contains("DECISION: HUMAN_REQUIRED") || roles.isEmpty()
+                ? WorkItemStatus.ARCHITECTURE_HUMAN_REQUIRED : WorkItemStatus.READY_FOR_DEVELOPMENT);
         return workItems.save(item);
     }
 
     private WorkItem implement(WorkItem item) {
         item.moveTo(WorkItemStatus.IMPLEMENTING);
-        Path sourceRepo = repository(item);
-        GitWorktreeManager.Worktree worktree = worktrees.create(sourceRepo, item.getExternalId());
-        item.setBranchName(worktree.branch());
+        var workspace = multiWorkspace.prepare(item);
+        if (!workspace.worktrees().isEmpty()) item.setBranchName(workspace.worktrees().getFirst().branch());
         Set<String> roles = deliveryRoles(item);
         List<String> reports = new ArrayList<>();
+        Map<String, Object> metadata = metadataWithWorkspace(workspace, implementationMetadata(item));
 
         if (roles.contains("BACKEND")) {
-            AgentResult backend = executeAgent(item, AgentType.BACKEND_DEVELOPER, worktree.path(), implementationMetadata(item));
+            AgentResult backend = executeAgent(item, AgentType.BACKEND_DEVELOPER, workspace.root(), metadata);
             if (!backend.success()) return fail(item);
             reports.add("## Backend\n" + backend.output());
         }
         if (roles.contains("FRONTEND")) {
-            AgentResult frontend = executeAgent(item, AgentType.FRONTEND_DEVELOPER, worktree.path(), implementationMetadata(item));
+            AgentResult frontend = executeAgent(item, AgentType.FRONTEND_DEVELOPER, workspace.root(), metadata);
             if (!frontend.success()) return fail(item);
             reports.add("## Frontend\n" + frontend.output());
         }
@@ -172,12 +159,12 @@ public class WorkflowEngine {
     }
 
     private WorkItem integrate(WorkItem item) {
-        GitWorktreeManager.Worktree worktree = worktrees.create(repository(item), item.getExternalId());
-        AgentResult result = executeAgent(item, AgentType.INTEGRATION_ENGINEER, worktree.path(), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.INTEGRATION_ENGINEER, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
                 "qaReport", Objects.toString(item.getQaReport(), "")
-        ));
+        )));
         if (!result.success()) return fail(item);
         item.setIntegrationReport(result.output());
         if (result.output().contains("DECISION: CHANGES_REQUIRED")) item.moveTo(WorkItemStatus.CHANGES_REQUESTED);
@@ -187,12 +174,12 @@ public class WorkflowEngine {
     }
 
     private WorkItem qa(WorkItem item) {
-        GitWorktreeManager.Worktree worktree = worktrees.create(repository(item), item.getExternalId());
-        AgentResult result = executeAgent(item, AgentType.QA_ENGINEER, worktree.path(), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.QA_ENGINEER, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
                 "integrationReport", Objects.toString(item.getIntegrationReport(), "")
-        ));
+        )));
         if (!result.success()) return fail(item);
         item.setQaReport(result.output());
         if (result.output().contains("DECISION: CHANGES_REQUIRED")) item.moveTo(WorkItemStatus.CHANGES_REQUESTED);
@@ -202,36 +189,32 @@ public class WorkflowEngine {
     }
 
     private WorkItem review(WorkItem item) {
-        GitWorktreeManager.Worktree worktree = worktrees.create(repository(item), item.getExternalId());
-        String diff = worktrees.diff(worktree.path());
-        AgentResult result = executeAgent(item, AgentType.REVIEWER, worktree.path(), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        String diff = worktrees.diffAll(workspace.worktrees());
+        AgentResult result = executeAgent(item, AgentType.REVIEWER, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
                 "integrationReport", Objects.toString(item.getIntegrationReport(), ""),
                 "qaReport", Objects.toString(item.getQaReport(), ""),
                 "gitDiff", diff
-        ));
+        )));
         if (!result.success()) return fail(item);
 
         item.setReviewReport(result.output());
         item.incrementReviewIterations();
-        if (result.output().contains("DECISION: APPROVED")) {
-            item.moveTo(WorkItemStatus.SECURITY_REVIEWING);
-        } else if (result.output().contains("DECISION: HUMAN_REQUIRED") || item.getReviewIterations() >= maxReviewIterations) {
-            item.moveTo(WorkItemStatus.READY_FOR_HUMAN_REVIEW);
-        } else {
-            item.moveTo(WorkItemStatus.CHANGES_REQUESTED);
-        }
+        if (result.output().contains("DECISION: APPROVED")) item.moveTo(WorkItemStatus.SECURITY_REVIEWING);
+        else if (result.output().contains("DECISION: HUMAN_REQUIRED") || item.getReviewIterations() >= maxReviewIterations) item.moveTo(WorkItemStatus.READY_FOR_HUMAN_REVIEW);
+        else item.moveTo(WorkItemStatus.CHANGES_REQUESTED);
         return workItems.save(item);
     }
 
     private WorkItem securityReview(WorkItem item) {
-        GitWorktreeManager.Worktree worktree = worktrees.create(repository(item), item.getExternalId());
-        AgentResult result = executeAgent(item, AgentType.SECURITY_REVIEWER, worktree.path(), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.SECURITY_REVIEWER, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
-                "gitDiff", worktrees.diff(worktree.path())
-        ));
+                "gitDiff", worktrees.diffAll(workspace.worktrees())
+        )));
         if (!result.success()) return fail(item);
         item.setSecurityReport(result.output());
         if (result.output().contains("DECISION: APPROVED")) item.moveTo(WorkItemStatus.RELEASE_PREPARING);
@@ -241,18 +224,23 @@ public class WorkflowEngine {
     }
 
     private WorkItem releaseReadiness(WorkItem item) {
-        GitWorktreeManager.Worktree worktree = worktrees.create(repository(item), item.getExternalId());
-        AgentResult result = executeAgent(item, AgentType.RELEASE_ENGINEER, worktree.path(), Map.of(
+        var workspace = multiWorkspace.prepare(item);
+        AgentResult result = executeAgent(item, AgentType.RELEASE_ENGINEER, workspace.root(), metadataWithWorkspace(workspace, Map.of(
                 "architecturePlan", Objects.toString(item.getArchitecturePlan(), ""),
                 "implementationReport", Objects.toString(item.getImplementationReport(), ""),
                 "qaReport", Objects.toString(item.getQaReport(), ""),
                 "securityReport", Objects.toString(item.getSecurityReport(), "")
-        ));
+        )));
         if (!result.success()) return fail(item);
         item.setReleaseReport(result.output());
-        if (result.output().contains("DECISION: READY")) item.moveTo(WorkItemStatus.READY_FOR_HUMAN_REVIEW);
-        else item.moveTo(WorkItemStatus.RELEASE_HUMAN_REQUIRED);
+        item.moveTo(result.output().contains("DECISION: READY") ? WorkItemStatus.READY_FOR_HUMAN_REVIEW : WorkItemStatus.RELEASE_HUMAN_REQUIRED);
         return workItems.save(item);
+    }
+
+    private Map<String, Object> metadataWithWorkspace(MultiRepositoryWorkspaceManager.TaskWorkspace workspace, Map<String, Object> metadata) {
+        Map<String, Object> result = new LinkedHashMap<>(metadata);
+        result.put("workspaceManifest", workspace.manifest());
+        return Map.copyOf(result);
     }
 
     private Map<String, Object> implementationMetadata(WorkItem item) {
@@ -298,9 +286,7 @@ public class WorkflowEngine {
         for (WorkItemDependency dependency : blockers) {
             WorkItem blocker = workItems.findById(dependency.getBlockedByWorkItemId())
                     .orElseThrow(() -> new IllegalStateException("Missing blocker WorkItem: " + dependency.getBlockedByWorkItemId()));
-            if (blocker.getStatus() != WorkItemStatus.DONE) {
-                pending.add(Objects.toString(blocker.getExternalId(), blocker.getId().toString()) + "=" + blocker.getStatus());
-            }
+            if (blocker.getStatus() != WorkItemStatus.DONE) pending.add(Objects.toString(blocker.getExternalId(), blocker.getId().toString()) + "=" + blocker.getStatus());
         }
         if (!pending.isEmpty()) throw new IllegalStateException("WorkItem is blocked by: " + String.join(", ", pending));
     }
@@ -323,12 +309,6 @@ public class WorkflowEngine {
         if (result.success()) execution.succeed(result.output()); else execution.fail(result.error());
         executions.save(execution);
         return result;
-    }
-
-    private Path repository(WorkItem item) {
-        Path repo = workspaceRoot.resolve(item.getRepositoryPath()).normalize();
-        if (!repo.startsWith(workspaceRoot)) throw new SecurityException("Repository outside workspace root");
-        return repo;
     }
 
     private Agent requiredAgent(AgentType type) {
