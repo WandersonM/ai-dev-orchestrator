@@ -21,6 +21,11 @@ springdoc:
     path: /swagger-ui.html
 aidev:
   workspace-root: ${AIDEV_WORKSPACE_ROOT:./workspace}
+  agents:
+    backend:
+      max-steps: ${AIDEV_BACKEND_MAX_STEPS:20}
+    review:
+      max-iterations: ${AIDEV_REVIEW_MAX_ITERATIONS:3}
   llm:
     routes:
       refinement:
