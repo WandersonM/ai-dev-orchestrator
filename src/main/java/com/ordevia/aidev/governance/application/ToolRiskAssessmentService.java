@@ -19,7 +19,7 @@ public class ToolRiskAssessmentService {
         Set<ToolCapability> capabilities = new LinkedHashSet<>();
         RiskLevel risk;
 
-        if (name.equals("read_file") || name.equals("search_code")) {
+        if (name.equals("read_file") || name.equals("search_code") || name.equals("project_knowledge")) {
             capabilities.add(ToolCapability.READ);
             risk = RiskLevel.LOW;
         } else if (name.equals("write_file")) {
