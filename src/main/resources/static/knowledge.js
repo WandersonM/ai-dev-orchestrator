@@ -11,7 +11,7 @@
           <div><span class="section-kicker">PROJECT MEMORY</span><h2>Knowledge Base dos agentes</h2><p>Regras confirmadas, decisões, constraints e comportamentos legados que devem sobreviver aos cards.</p></div>
           <span id="knowledgeCount" class="pill">0 itens</span>
         </div>
-        <div class="two-column knowledge-layout">
+        <div class="two-column">
           <form id="knowledgeForm" class="stack-form">
             <div class="form-row">
               <label>Tipo<select id="knowledgeType">${knowledgeTypes.map(x=>`<option>${x}</option>`).join('')}</select></label>
@@ -26,7 +26,7 @@
           </form>
           <div>
             <div class="mini-note">Essa informação fica disponível para Domain Guardian, Architect, Devs, QA, Critic, Reviewer e Security através da tool <code>project_knowledge</code>.</div>
-            <div id="knowledgeList" class="knowledge-list"></div>
+            <div id="knowledgeList"></div>
           </div>
         </div>
       </section>`);
@@ -42,7 +42,7 @@
     if(!state.project){root.innerHTML='<span class="muted">Selecione um projeto.</span>';document.querySelector('#knowledgeCount').textContent='0 itens';return;}
     const list=await safe(`/api/projects/${state.project.id}/knowledge`,[]);
     document.querySelector('#knowledgeCount').textContent=`${list.length} ${list.length===1?'item':'itens'}`;
-    root.innerHTML=list.length?list.map(k=>`<article class="knowledge-card"><div class="knowledge-head"><div><span class="pill ${k.confidence==='CONFIRMED'?'ok':'info'}">${esc(k.type)}</span><span class="pill">${esc(k.confidence)}</span></div><button class="btn small ghost" data-supersede="${k.id}">Arquivar</button></div><p>${esc(k.statement)}</p><small>${esc(k.sourceType||'')} ${k.sourceRef?'· '+esc(k.sourceRef):''}</small></article>`).join(''):'<span class="muted">Nenhum conhecimento persistente cadastrado.</span>';
+    root.innerHTML=list.length?list.map(k=>`<article class="repo-card"><div class="repo-head"><div><span class="pill ${k.confidence==='CONFIRMED'?'ok':'info'}">${esc(k.type)}</span> <span class="pill">${esc(k.confidence)}</span></div><button class="btn small ghost" data-supersede="${k.id}">Arquivar</button></div><p>${esc(k.statement)}</p><div class="repo-meta"><span>${esc(k.sourceType||'')}</span>${k.sourceRef?`<span>${esc(k.sourceRef)}</span>`:''}</div></article>`).join(''):'<span class="muted">Nenhum conhecimento persistente cadastrado.</span>';
     root.querySelectorAll('[data-supersede]').forEach(button=>button.onclick=()=>supersede(button.dataset.supersede));
   }
 
