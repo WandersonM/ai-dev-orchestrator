@@ -1,0 +1,27 @@
+spring:
+  config:
+    import: optional:file:./config/application-local.yml
+  datasource:
+    url: ${AIDEV_LOCAL_DB_URL:jdbc:postgresql://localhost:5432/aidev}
+    username: ${AIDEV_LOCAL_DB_USERNAME:aidev}
+    password: ${AIDEV_LOCAL_DB_PASSWORD:aidev}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    clean-disabled: true
+    validate-on-migrate: true
+
+server:
+  address: 127.0.0.1
+  port: ${SERVER_PORT:8080}
+
+aidev:
+  local-settings:
+    path: ./config/application-local.yml
+
+logging:
+  level:
+    com.ordevia.aidev: INFO
