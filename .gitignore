@@ -26,3 +26,5 @@ workspace/repositories/*/.git/
 # Local overrides
 application-local.yml
 application-local.yaml
+config/application-local.yml
+config/application-local.yaml
