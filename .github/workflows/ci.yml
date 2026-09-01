@@ -21,5 +21,9 @@ jobs:
           cache: maven
       - name: Validate dogfood harness
         run: python3 -m py_compile scripts/dogfood_e2e.py
+      - name: Validate control plane JavaScript
+        run: |
+          node --check src/main/resources/static/app.js
+          node --check src/main/resources/static/knowledge.js
       - name: Test
         run: mvn -B --no-transfer-progress test
