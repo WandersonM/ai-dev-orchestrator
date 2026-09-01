@@ -3,64 +3,247 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Dev Control Plane</title>
+  <meta name="color-scheme" content="dark">
+  <title>AI Dev Orchestrator</title>
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<div class="shell">
+<div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><span class="brand-mark">AI</span><div><strong>Dev Orchestrator</strong><small>Control Plane</small></div></div>
-    <label class="field">Projeto<select id="projectSelect"></select></label>
-    <button id="refreshBtn" class="btn secondary">Atualizar</button>
-    <button id="executeBtn" class="btn primary">Executar próxima onda</button>
-    <nav>
-      <button class="nav active" data-view="delivery">Delivery</button>
-      <button class="nav" data-view="approvals">Approvals <span id="approvalBadge" class="badge">0</span></button>
-      <button class="nav" data-view="mcp">MCP</button>
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div><strong>Dev Orchestrator</strong><small>Agentic Delivery Control Plane</small></div>
+    </div>
+
+    <div class="project-switcher">
+      <label for="projectSelect">Projeto ativo</label>
+      <select id="projectSelect"></select>
+    </div>
+
+    <nav class="nav-list">
+      <button class="nav active" data-view="delivery"><span>◫</span><span>Delivery</span></button>
+      <button class="nav" data-view="planning"><span>✦</span><span>Planejamento</span></button>
+      <button class="nav" data-view="projects"><span>⌘</span><span>Projetos & Repos</span></button>
+      <button class="nav" data-view="agents"><span>◎</span><span>Agentes</span></button>
+      <button class="nav" data-view="access"><span>⚿</span><span>Acessos & Models</span></button>
+      <button class="nav" data-view="approvals"><span>✓</span><span>Approvals</span><span id="approvalBadge" class="badge">0</span></button>
+      <button class="nav" data-view="mcp"><span>◇</span><span>MCP</span></button>
     </nav>
-    <div class="sidebar-footer"><a href="/swagger-ui.html">Swagger API ↗</a><span id="health">local</span></div>
+
+    <div class="sidebar-actions">
+      <button id="executeBtn" class="btn primary wide">Executar próxima onda</button>
+      <button id="refreshBtn" class="btn ghost wide">Atualizar tudo</button>
+    </div>
+
+    <div class="sidebar-footer">
+      <a href="/swagger-ui.html" target="_blank" rel="noreferrer">Swagger ↗</a>
+      <span id="connectionState" class="status-dot">local</span>
+    </div>
   </aside>
 
   <main class="main">
-    <header class="topbar"><div><h1 id="pageTitle">Delivery</h1><p id="projectDescription">Selecione um projeto.</p></div><div id="toast" class="toast"></div></header>
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">AI SOFTWARE FACTORY</div>
+        <h1 id="pageTitle">Delivery</h1>
+        <p id="pageSubtitle">Acompanhe o fluxo completo de entrega.</p>
+      </div>
+      <div class="topbar-right">
+        <div id="activeItemChip" class="active-item-chip hidden"></div>
+        <div id="toast" class="toast"></div>
+      </div>
+    </header>
 
     <section id="deliveryView" class="view active">
-      <div class="stats">
-        <article><span>WorkItems</span><strong id="statTotal">0</strong></article>
-        <article><span>Em execução</span><strong id="statRunning">0</strong></article>
-        <article><span>Gate humano</span><strong id="statHuman">0</strong></article>
-        <article><span>Concluídos</span><strong id="statDone">0</strong></article>
-        <article><span>Custo selecionado</span><strong id="statCost">$0.00</strong></article>
+      <div class="stats-grid">
+        <article class="stat-card"><span>WorkItems</span><strong id="statTotal">0</strong><small>no projeto</small></article>
+        <article class="stat-card"><span>Em execução</span><strong id="statRunning">0</strong><small>agentes ativos</small></article>
+        <article class="stat-card"><span>Gate humano</span><strong id="statHuman">0</strong><small>aguardando você</small></article>
+        <article class="stat-card"><span>Concluídos</span><strong id="statDone">0</strong><small>merged/done</small></article>
+        <article class="stat-card accent"><span>Custo API</span><strong id="statCost">$0.00</strong><small>item selecionado</small></article>
       </div>
 
-      <div class="layout">
-        <section class="panel stretch"><div class="panel-head"><div><h2>DAG & ondas</h2><p>Dependências e fronteira executável</p></div><span id="dagStatus" class="pill">—</span></div><div id="dag" class="waves empty">Nenhum projeto selecionado.</div></section>
-        <section class="panel"><div class="panel-head"><div><h2>WorkItems</h2><p>Selecione para inspecionar</p></div></div><div id="workItems" class="work-items"></div></section>
+      <div class="two-column delivery-layout">
+        <section class="panel panel-tall">
+          <div class="panel-head">
+            <div><span class="section-kicker">ORCHESTRATION</span><h2>DAG & ondas</h2><p>Dependências, paralelismo e próxima fronteira executável.</p></div>
+            <span id="dagStatus" class="pill">—</span>
+          </div>
+          <div id="dag" class="waves empty">Selecione um projeto.</div>
+        </section>
+        <section class="panel panel-tall">
+          <div class="panel-head">
+            <div><span class="section-kicker">BACKLOG</span><h2>WorkItems</h2><p>Clique para abrir o contexto completo.</p></div>
+            <button id="newWorkItemShortcut" class="btn small ghost">+ Card</button>
+          </div>
+          <div id="workItems" class="work-items"></div>
+        </section>
       </div>
 
       <section id="detail" class="panel detail hidden">
-        <div class="panel-head"><div><h2 id="detailTitle">WorkItem</h2><p id="detailMeta"></p></div><span id="detailStatus" class="pill"></span></div>
-        <div class="detail-grid">
-          <div><h3>Especificação</h3><pre id="specification">—</pre></div>
-          <div><h3>Arquitetura</h3><pre id="architecture">—</pre></div>
+        <div class="panel-head">
+          <div><span class="section-kicker">WORK ITEM</span><h2 id="detailTitle">WorkItem</h2><p id="detailMeta"></p></div>
+          <span id="detailStatus" class="pill"></span>
         </div>
-        <div class="subgrid">
-          <div><h3>Sessões</h3><div id="sessions"></div></div>
+        <div class="detail-grid">
+          <div class="document-card"><h3>Especificação aprovada</h3><pre id="specification">—</pre></div>
+          <div class="document-card"><h3>Plano de arquitetura</h3><pre id="architecture">—</pre></div>
+        </div>
+        <div class="three-column">
+          <div><h3>Sessões recentes</h3><div id="deliverySessions"></div></div>
           <div><h3>Telemetria</h3><div id="telemetry"></div><h3>Budget</h3><div id="budget"></div></div>
           <div><h3>Audit timeline</h3><div id="audit"></div></div>
         </div>
       </section>
     </section>
 
+    <section id="planningView" class="view">
+      <div id="planningEmpty" class="empty-state panel">
+        <div class="empty-icon">✦</div><h2>Selecione um WorkItem</h2><p>Escolha um card em Delivery para conversar com o Product Planning Agent.</p>
+      </div>
+      <div id="planningWorkspace" class="hidden">
+        <div class="two-column planning-layout">
+          <section class="panel">
+            <div class="panel-head"><div><span class="section-kicker">PRODUCT DISCOVERY</span><h2 id="planningTitle">Planejamento</h2><p id="planningMeta"></p></div><span id="planningStatus" class="pill"></span></div>
+            <div class="planning-actions">
+              <button id="planningStartBtn" class="btn primary">Iniciar planejamento</button>
+              <button id="planningContinueBtn" class="btn secondary">Continuar rodada</button>
+              <button id="planningApproveBtn" class="btn success">Aprovar especificação</button>
+            </div>
+            <h3>Perguntas do agente</h3>
+            <div id="planningQuestions" class="question-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head"><div><span class="section-kicker">HUMAN REVIEW</span><h2>Especificação</h2><p>O que será entregue para Domain Guardian e Architect.</p></div></div>
+            <pre id="planningSpecification" class="large-pre">—</pre>
+            <form id="planningFeedbackForm" class="stack-form">
+              <label>Solicitar mudanças<textarea id="planningFeedback" rows="4" placeholder="Ex.: faltou considerar cancelamento, auditoria e o comportamento do legado..."></textarea></label>
+              <button class="btn secondary" type="submit">Enviar feedback e abrir nova rodada</button>
+            </form>
+            <h3>Histórico de feedback</h3><div id="planningFeedbackHistory" class="timeline"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section id="projectsView" class="view">
+      <div class="two-column settings-layout">
+        <section class="panel">
+          <div class="panel-head"><div><span class="section-kicker">PORTFOLIO</span><h2>Projetos</h2><p>Cadastre um sistema, legado ou produto novo.</p></div></div>
+          <form id="createProjectForm" class="stack-form">
+            <div class="form-row"><label>Nome<input id="projectName" required placeholder="ERP Comercial"></label><label>Repository path inicial<input id="projectRepositoryPath" required placeholder="repositories/erp"></label></div>
+            <label>Descrição<textarea id="projectDescriptionInput" rows="3" placeholder="Contexto do produto e objetivo..."></textarea></label>
+            <button class="btn primary" type="submit">Criar projeto</button>
+          </form>
+          <div id="projectCards" class="project-cards"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><div><span class="section-kicker">MULTI-REPO</span><h2>Repositórios do projeto</h2><p>Cada repo pode ter branch base, stack e instruções próprias.</p></div></div>
+          <div id="repositoriesList" class="repo-list"></div>
+          <form id="addRepositoryForm" class="stack-form divider-top">
+            <div class="form-row"><label>Alias<input id="repoAlias" required placeholder="backend"></label><label>Tipo<select id="repoKind"><option>BACKEND</option><option>LEGACY_BACKEND</option><option>FRONTEND</option><option>FULLSTACK</option><option>SHARED_LIBRARY</option><option>INFRASTRUCTURE</option><option>DATABASE</option><option>DOCUMENTATION</option><option>OTHER</option></select></label></div>
+            <label>Path local<input id="repoPath" required placeholder="/Users/me/projetos/backend"></label>
+            <div class="form-row"><label>Base branch<input id="repoBaseBranch" value="main"></label><label>Prefixo de branch<input id="repoBranchPrefix" value="ai/"></label></div>
+            <div class="form-row"><label>Build command<input id="repoBuildCommand" placeholder="./mvnw verify"></label><label>Test command<input id="repoTestCommand" placeholder="./mvnw test"></label></div>
+            <div class="form-row"><label>Java<input id="repoJavaVersion" placeholder="25"></label><label>Node<input id="repoNodeVersion" placeholder="24"></label></div>
+            <label>Instructions path<input id="repoInstructionsPath" value="AGENTS.md"></label>
+            <button class="btn secondary" type="submit">Adicionar repositório</button>
+          </form>
+        </section>
+      </div>
+
+      <section class="panel top-gap">
+        <div class="panel-head"><div><span class="section-kicker">NEW WORK</span><h2>Novo WorkItem</h2><p>Crie um card manualmente para testar sem Trello.</p></div></div>
+        <form id="createWorkItemForm" class="stack-form">
+          <div class="form-row"><label>External ID<input id="workExternalId" placeholder="ERP-101"></label><label>Repositório<select id="workRepositoryAlias"></select></label></div>
+          <label>Título<input id="workTitle" required placeholder="Permitir alterar data de vencimento"></label>
+          <label>Descrição / contexto inicial<textarea id="workDescription" rows="5" placeholder="Descreva o problema de negócio. O Planning Agent perguntará o que estiver faltando."></textarea></label>
+          <button class="btn primary" type="submit">Criar WorkItem</button>
+        </form>
+      </section>
+    </section>
+
+    <section id="agentsView" class="view">
+      <div id="agentsEmpty" class="empty-state panel"><div class="empty-icon">◎</div><h2>Selecione um WorkItem</h2><p>As sessões dos agentes aparecerão aqui.</p></div>
+      <div id="agentsWorkspace" class="hidden two-column agents-layout">
+        <section class="panel">
+          <div class="panel-head"><div><span class="section-kicker">AGENT RUNTIME</span><h2>Sessões</h2><p>Pause, retome, cancele ou envie uma orientação.</p></div></div>
+          <div id="agentSessions" class="session-list"></div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><div><span class="section-kicker">LIVE GUIDANCE</span><h2 id="selectedSessionTitle">Sessão</h2><p id="selectedSessionMeta">Selecione uma sessão.</p></div></div>
+          <form id="agentMessageForm" class="stack-form">
+            <label>Mensagem para o agente<textarea id="agentMessage" rows="4" placeholder="Ex.: antes de alterar a API pública, verifique os consumidores no legado."></textarea></label>
+            <button id="sendAgentMessageBtn" class="btn primary" type="submit">Enviar orientação</button>
+          </form>
+          <h3>Mensagens</h3><div id="sessionMessages" class="timeline"></div>
+          <h3>Checkpoints</h3><div id="sessionCheckpoints" class="timeline checkpoint-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="accessView" class="view">
+      <div id="localProfileWarning" class="callout warn hidden"><strong>Profile local inativo.</strong><span>Suba a aplicação com <code>--spring.profiles.active=local</code> para editar esta configuração pela UI.</span></div>
+      <form id="accessForm">
+        <div class="settings-grid">
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">DATABASE</span><h2>PostgreSQL local</h2><p>Flyway roda automaticamente no startup.</p></div><span id="dbSecretState" class="pill">senha</span></div>
+            <label>JDBC URL<input id="databaseUrl" placeholder="jdbc:postgresql://localhost:5432/aidev"></label>
+            <div class="form-row"><label>Usuário<input id="databaseUsername"></label><label>Senha<input id="databasePassword" type="password" placeholder="deixe vazio para manter"></label></div>
+          </section>
+
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">OPENAI API</span><h2>GPT via API</h2><p>Usado pelos papéis roteados para OPENAI.</p></div><span id="openAiState" class="pill">key</span></div>
+            <label>Base URL<input id="openAiBaseUrl"></label><label>API key<input id="openAiApiKey" type="password" placeholder="deixe vazio para manter"></label>
+          </section>
+
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">GOOGLE AI</span><h2>Gemini API</h2><p>Provider alternativo para planejamento, QA e critic.</p></div><span id="geminiState" class="pill">key</span></div>
+            <label>Base URL<input id="geminiBaseUrl"></label><label>API key<input id="geminiApiKey" type="password" placeholder="deixe vazio para manter"></label>
+          </section>
+
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">CODEX PRO</span><h2>Codex CLI</h2><p>Usa sua sessão <code>codex login</code>, sem copiar OAuth.</p></div><span id="codexState" class="pill">—</span></div>
+            <label class="toggle-row"><input id="codexEnabled" type="checkbox"><span>Delegar papéis selecionados ao Codex</span></label>
+            <div class="form-row"><label>Binary<input id="codexBinary" value="codex"></label><label>Model override<input id="codexModel" placeholder="opcional"></label></div>
+            <div id="codexRoles" class="check-grid"></div>
+            <div id="codexDetails" class="mini-note"></div>
+          </section>
+
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">GITHUB</span><h2>GitHub</h2><p>Draft PRs coordenados e feedback de review.</p></div><span id="githubState" class="pill">token</span></div>
+            <label class="toggle-row"><input id="githubPublishEnabled" type="checkbox"><span>Permitir publicação de Draft PR</span></label>
+            <label>Token<input id="githubToken" type="password" placeholder="deixe vazio para manter"></label><label>Base branch padrão<input id="githubBaseBranch" value="main"></label>
+          </section>
+
+          <section class="panel setting-card">
+            <div class="panel-head"><div><span class="section-kicker">TRELLO</span><h2>Trello</h2><p>Cards, perguntas e respostas do Planning Agent.</p></div><span id="trelloState" class="pill">credentials</span></div>
+            <label class="toggle-row"><input id="trelloEnabled" type="checkbox"><span>Habilitar integração</span></label>
+            <label>API key<input id="trelloApiKey" type="password" placeholder="deixe vazio para manter"></label><label>Token<input id="trelloToken" type="password" placeholder="deixe vazio para manter"></label>
+          </section>
+        </div>
+
+        <section class="panel top-gap">
+          <div class="panel-head"><div><span class="section-kicker">MODEL ROUTING</span><h2>Provider e modelo por papel</h2><p>Codex tem precedência nos papéis delegados; os demais usam este roteamento.</p></div><label class="toggle-row compact"><input id="mcpEnabled" type="checkbox"><span>MCP habilitado</span></label></div>
+          <div id="routeMatrix" class="route-matrix"></div>
+        </section>
+
+        <div class="sticky-save"><div><strong id="settingsPath">config/application-local.yml</strong><span id="settingsHint">Secrets nunca são retornados em claro.</span></div><button class="btn primary" type="submit">Salvar configuração local</button></div>
+      </form>
+    </section>
+
     <section id="approvalsView" class="view">
-      <section class="panel"><div class="panel-head"><div><h2>Approval Inbox</h2><p>Operações de risco aguardando decisão humana</p></div></div><div id="approvals" class="approval-list"></div></section>
+      <section class="panel"><div class="panel-head"><div><span class="section-kicker">HUMAN GATE</span><h2>Approval Inbox</h2><p>Operações de risco aguardando decisão humana.</p></div></div><div id="approvals" class="approval-list"></div></section>
     </section>
 
     <section id="mcpView" class="view">
-      <section class="panel"><div class="panel-head"><div><h2>MCP Servers</h2><p>Ferramentas externas descobertas pelo orchestrator</p></div></div><div id="mcpServers"></div></section>
+      <section class="panel"><div class="panel-head"><div><span class="section-kicker">TOOLS</span><h2>MCP Servers</h2><p>Servidores, status e tools descobertas dinamicamente.</p></div></div><div id="mcpServers" class="server-grid"></div></section>
     </section>
   </main>
 </div>
+
+<dialog id="approvalDialog" class="modal"><form method="dialog" id="approvalDecisionForm"><h2 id="approvalDialogTitle">Approval</h2><p id="approvalDialogText"></p><label>Nota<textarea id="approvalNote" rows="4"></textarea></label><div class="modal-actions"><button value="cancel" class="btn ghost">Cancelar</button><button id="approvalConfirmBtn" value="default" class="btn primary">Confirmar</button></div></form></dialog>
 <script src="/app.js"></script>
 </body>
 </html>
