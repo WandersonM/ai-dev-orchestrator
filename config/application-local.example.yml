@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aidev
+    username: aidev
+    password: change-me
+  flyway:
+    enabled: true
+    clean-disabled: true
+    validate-on-migrate: true
+
+aidev:
+  llm:
+    openai:
+      api-key: ""
+      base-url: https://api.openai.com
+    gemini:
+      api-key: ""
+      base-url: https://generativelanguage.googleapis.com
+  github:
+    publish-enabled: false
+    token: ""
+  trello:
+    enabled: false
+    api-key: ""
+    token: ""
+  mcp:
+    enabled: false
+  codex:
+    enabled: false
+    binary: codex
+    roles:
+      - BACKEND_DEVELOPER
+      - QA_ENGINEER
